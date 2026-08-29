@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+﻿import React, { useState, useEffect, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { 
   Upload, 
@@ -26,6 +26,7 @@ import QRCode from 'qrcode';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { fetchUserApplications, saveDocumentApplication } from '../lib/supabase';
+import { checkImageQuality, classifyDocument, extractDocumentData } from '../lib/imageVerifier';
 
 // Standard QR Code Image Component (100% compliant with Google Lens & Camera scanners)
 function ScannableQRCode({ payload, size = 180 }) {
@@ -195,6 +196,23 @@ export default function TravellerDashboard() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [stepError, setStepError] = useState('');
   const [uploadSuccessApp, setUploadSuccessApp] = useState(null);
+  
+  // Per-document verification states: verifying, error, ready (unlocks fields after OCR)
+  const [passportVerifying, setPassportVerifying] = useState(false);
+  const [passportDocError, setPassportDocError] = useState('');
+  const [passportReady, setPassportReady] = useState(false);
+
+  const [visaVerifying, setVisaVerifying] = useState(false);
+  const [visaDocError, setVisaDocError] = useState('');
+  const [visaReady, setVisaReady] = useState(false);
+
+  const [nationalIdVerifying, setNationalIdVerifying] = useState(false);
+  const [nationalIdDocError, setNationalIdDocError] = useState('');
+  const [nationalIdReady, setNationalIdReady] = useState(false);
+
+  const [dlVerifying, setDlVerifying] = useState(false);
+  const [dlDocError, setDlDocError] = useState('');
+  const [dlReady, setDlReady] = useState(false);
 
   // Load user applications on mount (Strictly user-submitted, no mock data)
   useEffect(() => {
@@ -216,19 +234,103 @@ export default function TravellerDashboard() {
     load();
   }, [userId]);
 
-  // Generic file reader helper
-  const handleFileChange = (file, setImg, setFileName) => {
+  /**
+   * Generic file reader helper with AI checks + OCR autofill.
+   * @param file - The File object from the input
+   * @param setImg - State setter for the image data URL
+   * @param setFileName - State setter for the filename display
+   * @param expectedType - Document type string for AI classification
+   * @param fileInputId - DOM ID of the file input, for resetting on error
+   * @param setVerifying - Per-doc setter: controls the loading state
+   * @param setDocError - Per-doc setter: shows inline error below upload box
+   * @param setReady - Per-doc setter: unlocks form fields after OCR completes
+   * @param autofillFn - Callback to auto-fill form fields with OCR data
+   */
+  const handleFileChange = async (
+    file, setImg, setFileName, expectedType,
+    fileInputId, setVerifying, setDocError, setReady, autofillFn
+  ) => {
     if (!file) return;
-    if (!file.type.startsWith('image/') && file.type !== 'application/pdf') {
-      alert('Please select a valid image file (JPG, PNG, WEBP) or PDF.');
+    setDocError('');
+    setStepError('');
+    setReady(false);
+
+    // Only allow image formats
+    if (!file.type.startsWith('image/')) {
+      setDocError('Only image files are allowed (JPG, PNG, WEBP, etc.). Please re-upload.');
+      const input = document.getElementById(fileInputId);
+      if (input) input.value = '';
       return;
     }
-    setFileName(file.name);
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      setImg(e.target.result);
+
+    setVerifying(true);
+    setFileName('Verifying...');
+
+    // Helper to reset file input so user can re-select the same file
+    const resetFileInput = () => {
+      const input = document.getElementById(fileInputId);
+      if (input) input.value = '';
     };
-    reader.readAsDataURL(file);
+
+    try {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const dataUrl = e.target.result;
+        
+        // 1. Check Blur (OpenCV)
+        const qualityResult = await checkImageQuality(dataUrl, 100);
+        if (qualityResult.isBlurry) {
+          setDocError('Reupload: Image is too blurry or damaged. Please upload a clearer photo.');
+          setFileName('');
+          setImg('');
+          resetFileInput();
+          setVerifying(false);
+          return;
+        }
+
+        // 2. Classify Document (Groq Vision)
+        if (expectedType) {
+          const classificationResult = await classifyDocument(dataUrl, expectedType);
+          if (!classificationResult.isAccepted) {
+            setDocError(`Reupload: AI rejected this as a valid ${expectedType}. Reason: ${classificationResult.reason}`);
+            setFileName('');
+            setImg('');
+            resetFileInput();
+            setVerifying(false);
+            return;
+          }
+        }
+        
+        // 3. All checks passed - attach the image, keep verifying state for OCR step
+        setFileName('Extracting data...');
+        setImg(dataUrl);
+
+        // 4. Run OCR to auto-fill fields, then unlock them
+        if (autofillFn) {
+          try {
+            const ocrType = expectedType === 'Aadhaar or National ID' ? 'Aadhaar' :
+                            expectedType === 'Driving License' ? 'DrivingLicense' : expectedType;
+            const extracted = await extractDocumentData(dataUrl, ocrType);
+            autofillFn(extracted);
+          } catch (ocrErr) {
+            console.warn('OCR autofill failed silently:', ocrErr);
+          }
+        }
+
+        // 5. Done - unlock fields
+        setFileName(file.name);
+        setVerifying(false);
+        setReady(true);
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      console.error(err);
+      setDocError('An error occurred during image verification. Please try again.');
+      setFileName('');
+      setImg('');
+      resetFileInput();
+      setVerifying(false);
+    }
   };
 
   // 1-Click Demo Sample Autofill
@@ -674,7 +776,7 @@ Authority: AuthentiQ Screening Portal`;
               </div>
             )}
 
-            {/* Error Alert */}
+            {/* Error Alert - only for stepError now, doc errors are inline */}
             {stepError && (
               <div className="alert-box alert-danger" style={{ marginBottom: '20px' }}>
                 <AlertCircle size={18} style={{ flexShrink: 0 }} />
@@ -687,38 +789,38 @@ Authority: AuthentiQ Screening Portal`;
               <div
                 className={`wizard-step-node ${uploadStep === 1 ? 'active' : uploadStep > 1 ? 'completed' : ''}`}
                 onClick={() => setUploadStep(1)}>
-                <span className="wizard-step-num">{uploadStep > 1 ? '✓' : '1'}</span>
+                <span className="wizard-step-num">{uploadStep > 1 ? 'âœ“' : '1'}</span>
                 <span>1. Passport</span>
               </div>
 
-              <span className="wizard-arrow">→</span>
+              <span className="wizard-arrow">â†’</span>
 
               <div
                 className={`wizard-step-node ${uploadStep === 2 ? 'active' : uploadStep > 2 ? 'completed' : ''}`}
                 onClick={() => { if (passportImg && passportNumber) setUploadStep(2); }}>
-                <span className="wizard-step-num">{uploadStep > 2 ? '✓' : '2'}</span>
+                <span className="wizard-step-num">{uploadStep > 2 ? 'âœ“' : '2'}</span>
                 <span>2. Visa Document</span>
               </div>
 
-              <span className="wizard-arrow">→</span>
+              <span className="wizard-arrow">â†’</span>
 
               <div
                 className={`wizard-step-node ${uploadStep === 3 ? 'active' : uploadStep > 3 ? 'completed' : ''}`}
                 onClick={() => { if (visaImg && visaNumber) setUploadStep(3); }}>
-                <span className="wizard-step-num">{uploadStep > 3 ? '✓' : '3'}</span>
+                <span className="wizard-step-num">{uploadStep > 3 ? 'âœ“' : '3'}</span>
                 <span>3. National ID (Aadhaar)</span>
               </div>
 
-              <span className="wizard-arrow">→</span>
+              <span className="wizard-arrow">â†’</span>
 
               <div
                 className={`wizard-step-node ${uploadStep === 4 ? 'active' : uploadStep > 4 ? 'completed' : ''}`}
                 onClick={() => { if (nationalIdImg && nationalIdNumber) setUploadStep(4); }}>
-                <span className="wizard-step-num">{uploadStep > 4 ? '✓' : '4'}</span>
+                <span className="wizard-step-num">{uploadStep > 4 ? 'âœ“' : '4'}</span>
                 <span>4. Driving License</span>
               </div>
 
-              <span className="wizard-arrow">→</span>
+              <span className="wizard-arrow">â†’</span>
 
               <div
                 className={`wizard-step-node ${uploadStep === 5 ? 'active' : ''}`}
@@ -748,7 +850,7 @@ Authority: AuthentiQ Screening Portal`;
                 
                 <div className="doc-section-header">
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ fontSize: '1.2rem' }}>🛂</span>
+                    <span style={{ fontSize: '1.2rem' }}>ðŸ›‚</span>
                     <div>
                       <h3 style={{ fontSize: '1.05rem', fontWeight: '700', color: 'var(--text)', margin: 0 }}>
                         Step 1 of 4: Passport Information
@@ -764,13 +866,33 @@ Authority: AuthentiQ Screening Portal`;
                 {/* Passport Image Upload Box */}
                 <div
                   className="doc-upload-box"
-                  onClick={() => document.getElementById('passport-file-input').click()}>
+                  onClick={() => !passportVerifying && document.getElementById('passport-file-input').click()}>
                   <input
                     id="passport-file-input"
                     type="file"
-                    accept="image/*,application/pdf"
+                    accept="image/*"
                     style={{ display: 'none' }}
-                    onChange={(e) => handleFileChange(e.target.files[0], setPassportImg, setPassportFileName)}
+                    onChange={(e) => handleFileChange(
+                        e.target.files[0],
+                        setPassportImg,
+                        setPassportFileName,
+                        'Passport',
+                        'passport-file-input',
+                        setPassportVerifying,
+                        setPassportDocError,
+                        setPassportReady,
+                        (d) => {
+                          if (d.name) setPassportName(d.name);
+                          if (d.passportNumber) setPassportNumber(d.passportNumber);
+                          if (d.nationality) setPassportNationality(d.nationality);
+                          if (d.dob) setPassportDob(d.dob);
+                          if (d.doi) setPassportDoi(d.doi);
+                          if (d.doe) setPassportDoe(d.doe);
+                          if (d.gender) setPassportGender(d.gender);
+                          if (d.placeOfIssue) setPassportPlaceOfIssue(d.placeOfIssue);
+                        }
+                      )}
+                    disabled={passportVerifying}
                   />
                   {passportImg ? (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '14px' }}>
@@ -781,25 +903,47 @@ Authority: AuthentiQ Screening Portal`;
                       />
                       <div style={{ textAlign: 'left' }}>
                         <div style={{ fontSize: '0.84rem', fontWeight: '600', color: 'var(--text)' }}>
-                          {passportFileName || 'passport_scan.jpg'}
+                          {passportFileName}
                         </div>
-                        <span style={{ fontSize: '0.72rem', color: 'var(--success)', fontWeight: '600' }}>✓ Image Attached (Click to change)</span>
+                        {passportReady
+                          ? <span style={{ fontSize: '0.72rem', color: 'var(--success)', fontWeight: '600' }}>âœ“ Verified &amp; Data Extracted (Click to change)</span>
+                          : <span style={{ fontSize: '0.72rem', color: 'var(--warning, #f59e0b)', fontWeight: '600' }}>â³ {passportFileName}...</span>
+                        }
                       </div>
                     </div>
                   ) : (
                     <div>
-                      <Upload size={22} style={{ color: 'var(--text-dim)', margin: '0 auto 6px auto' }} />
+                      {passportVerifying ? (
+                        <div style={{ color: 'var(--text-dim)', marginBottom: '6px' }}>â³ {passportFileName}</div>
+                      ) : (
+                        <Upload size={22} style={{ color: 'var(--text-dim)', margin: '0 auto 6px auto' }} />
+                      )}
                       <div style={{ fontSize: '0.84rem', fontWeight: '600', color: 'var(--text)' }}>
                         Click to Upload Passport Photo Page
                       </div>
                       <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                        Supports JPG, PNG, WEBP, PDF
+                        Supports JPG, PNG, WEBP
                       </div>
                     </div>
                   )}
                 </div>
 
-                {/* Passport Text Boxes Grid */}
+                {/* Inline error below upload box */}
+                {passportDocError && (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '10px 14px', background: 'var(--danger-bg, #fef2f2)', border: '1px solid var(--danger-border, #fecaca)', borderRadius: 'var(--radius-sm)', marginTop: '10px', marginBottom: '6px' }}>
+                    <AlertCircle size={15} style={{ color: 'var(--danger, #ef4444)', flexShrink: 0, marginTop: '1px' }} />
+                    <span style={{ fontSize: '0.78rem', color: 'var(--danger, #ef4444)', fontWeight: '500' }}>{passportDocError}</span>
+                  </div>
+                )}
+
+                {/* Passport Text Boxes Grid â€” locked until OCR done */}
+                <div style={{ opacity: passportReady ? 1 : 0.45, pointerEvents: passportReady ? 'auto' : 'none', transition: 'opacity 0.3s' }}>
+                  {!passportReady && (
+                    <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>ðŸ”’</span>
+                      <span>{passportVerifying ? 'AI is verifying and extracting data from your document...' : 'Upload and verify your document above to unlock these fields.'}</span>
+                    </div>
+                  )}
                 <div className="form-grid-3" style={{ marginBottom: '14px' }}>
                   <div className="form-group">
                     <label className="input-label">Full Name (as on Passport) *</label>
@@ -892,6 +1036,7 @@ Authority: AuthentiQ Screening Portal`;
                     />
                   </div>
                 </div>
+                </div>
 
                 {/* Step 1 Navigation Button */}
                 <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
@@ -916,7 +1061,7 @@ Authority: AuthentiQ Screening Portal`;
                 
                 <div className="doc-section-header">
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ fontSize: '1.2rem' }}>📄</span>
+                    <span style={{ fontSize: '1.2rem' }}>ðŸ“„</span>
                     <div>
                       <h3 style={{ fontSize: '1.05rem', fontWeight: '700', color: 'var(--text)', margin: 0 }}>
                         Step 2 of 4: Visa Document Information
@@ -932,72 +1077,84 @@ Authority: AuthentiQ Screening Portal`;
                 {/* Visa Image Upload Box */}
                 <div
                   className="doc-upload-box"
-                  onClick={() => document.getElementById('visa-file-input').click()}>
+                  onClick={() => !visaVerifying && document.getElementById('visa-file-input').click()}>
                   <input
                     id="visa-file-input"
                     type="file"
-                    accept="image/*,application/pdf"
+                    accept="image/*"
                     style={{ display: 'none' }}
-                    onChange={(e) => handleFileChange(e.target.files[0], setVisaImg, setVisaFileName)}
+                    onChange={(e) => handleFileChange(
+                        e.target.files[0],
+                        setVisaImg,
+                        setVisaFileName,
+                        'Visa',
+                        'visa-file-input',
+                        setVisaVerifying,
+                        setVisaDocError,
+                        setVisaReady,
+                        (d) => {
+                          if (d.name) setVisaName(d.name);
+                          if (d.visaNumber) setVisaNumber(d.visaNumber);
+                          if (d.nationality) setVisaNationality(d.nationality);
+                          if (d.dob) setVisaDob(d.dob);
+                          if (d.doi) setVisaDoi(d.doi);
+                          if (d.doe) setVisaDoe(d.doe);
+                          if (d.gender) setVisaGender(d.gender);
+                        }
+                      )}
+                    disabled={visaVerifying}
                   />
                   {visaImg ? (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '14px' }}>
-                      <img
-                        src={visaImg}
-                        alt="Visa Preview"
-                        style={{ height: '76px', borderRadius: '4px', objectFit: 'contain', border: '1px solid var(--border)' }}
-                      />
+                      <img src={visaImg} alt="Visa Preview" style={{ height: '76px', borderRadius: '4px', objectFit: 'contain', border: '1px solid var(--border)' }} />
                       <div style={{ textAlign: 'left' }}>
-                        <div style={{ fontSize: '0.84rem', fontWeight: '600', color: 'var(--text)' }}>
-                          {visaFileName || 'visa_doc.jpg'}
-                        </div>
-                        <span style={{ fontSize: '0.72rem', color: 'var(--success)', fontWeight: '600' }}>✓ Image Attached (Click to change)</span>
+                        <div style={{ fontSize: '0.84rem', fontWeight: '600', color: 'var(--text)' }}>{visaFileName}</div>
+                        {visaReady
+                          ? <span style={{ fontSize: '0.72rem', color: 'var(--success)', fontWeight: '600' }}>âœ“ Verified &amp; Data Extracted (Click to change)</span>
+                          : <span style={{ fontSize: '0.72rem', color: 'var(--warning, #f59e0b)', fontWeight: '600' }}>â³ {visaFileName}...</span>
+                        }
                       </div>
                     </div>
                   ) : (
                     <div>
-                      <Upload size={22} style={{ color: 'var(--text-dim)', margin: '0 auto 6px auto' }} />
-                      <div style={{ fontSize: '0.84rem', fontWeight: '600', color: 'var(--text)' }}>
-                        Click to Upload Visa Document / Permit Copy
-                      </div>
-                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                        Supports JPG, PNG, WEBP, PDF
-                      </div>
+                      {visaVerifying
+                        ? <div style={{ color: 'var(--text-dim)', marginBottom: '6px' }}>â³ {visaFileName}</div>
+                        : <Upload size={22} style={{ color: 'var(--text-dim)', margin: '0 auto 6px auto' }} />
+                      }
+                      <div style={{ fontSize: '0.84rem', fontWeight: '600', color: 'var(--text)' }}>Click to Upload Visa Document / Permit Copy</div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Supports JPG, PNG, WEBP</div>
                     </div>
                   )}
                 </div>
 
-                {/* Visa Text Boxes Grid */}
+                {/* Inline error below upload box */}
+                {visaDocError && (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '10px 14px', background: 'var(--danger-bg, #fef2f2)', border: '1px solid var(--danger-border, #fecaca)', borderRadius: 'var(--radius-sm)', marginTop: '10px', marginBottom: '6px' }}>
+                    <AlertCircle size={15} style={{ color: 'var(--danger, #ef4444)', flexShrink: 0, marginTop: '1px' }} />
+                    <span style={{ fontSize: '0.78rem', color: 'var(--danger, #ef4444)', fontWeight: '500' }}>{visaDocError}</span>
+                  </div>
+                )}
+
+                {/* Visa Fields â€” locked until OCR done */}
+                <div style={{ opacity: visaReady ? 1 : 0.45, pointerEvents: visaReady ? 'auto' : 'none', transition: 'opacity 0.3s' }}>
+                  {!visaReady && (
+                    <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>ðŸ”’</span>
+                      <span>{visaVerifying ? 'AI is verifying and extracting data from your document...' : 'Upload and verify your document above to unlock these fields.'}</span>
+                    </div>
+                  )}
                 <div className="form-grid-3" style={{ marginBottom: '14px' }}>
                   <div className="form-group">
                     <label className="input-label">Full Name (as on Visa) *</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Rahul Sharma"
-                      value={visaName}
-                      onChange={(e) => setVisaName(e.target.value)}
-                      className="input-field"
-                    />
+                    <input type="text" placeholder="e.g. Rahul Sharma" value={visaName} onChange={(e) => setVisaName(e.target.value)} className="input-field" />
                   </div>
-
                   <div className="form-group">
                     <label className="input-label">Visa Number *</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. VISA-IND-904128"
-                      value={visaNumber}
-                      onChange={(e) => setVisaNumber(e.target.value.toUpperCase())}
-                      className="input-field"
-                      style={{ fontFamily: 'var(--font-mono)' }}
-                    />
+                    <input type="text" placeholder="e.g. VISA-IND-904128" value={visaNumber} onChange={(e) => setVisaNumber(e.target.value.toUpperCase())} className="input-field" style={{ fontFamily: 'var(--font-mono)' }} />
                   </div>
-
                   <div className="form-group">
                     <label className="input-label">Visa Type / Category *</label>
-                    <select
-                      value={visaType}
-                      onChange={(e) => setVisaType(e.target.value)}
-                      className="input-field">
+                    <select value={visaType} onChange={(e) => setVisaType(e.target.value)} className="input-field">
                       <option value="Tourist / Transit">Tourist / Transit Visa</option>
                       <option value="Business / Conference">Business / Conference Visa</option>
                       <option value="Student / Academic">Student / Academic Visa</option>
@@ -1006,74 +1163,42 @@ Authority: AuthentiQ Screening Portal`;
                     </select>
                   </div>
                 </div>
-
                 <div className="form-grid-3" style={{ marginBottom: '14px' }}>
                   <div className="form-group">
                     <label className="input-label">Entry Validation *</label>
-                    <select
-                      value={visaEntryType}
-                      onChange={(e) => setVisaEntryType(e.target.value)}
-                      className="input-field">
+                    <select value={visaEntryType} onChange={(e) => setVisaEntryType(e.target.value)} className="input-field">
                       <option value="Single Entry">Single Entry</option>
                       <option value="Double Entry">Double Entry</option>
                       <option value="Multiple Entry">Multiple Entry</option>
                     </select>
                   </div>
-
                   <div className="form-group">
                     <label className="input-label">Nationality *</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Indian (IND)"
-                      value={visaNationality}
-                      onChange={(e) => setVisaNationality(e.target.value)}
-                      className="input-field"
-                    />
+                    <input type="text" placeholder="e.g. Indian (IND)" value={visaNationality} onChange={(e) => setVisaNationality(e.target.value)} className="input-field" />
                   </div>
-
                   <div className="form-group">
                     <label className="input-label">Gender</label>
-                    <select
-                      value={visaGender}
-                      onChange={(e) => setVisaGender(e.target.value)}
-                      className="input-field">
+                    <select value={visaGender} onChange={(e) => setVisaGender(e.target.value)} className="input-field">
                       <option value="Male">Male</option>
                       <option value="Female">Female</option>
                       <option value="Other">Other</option>
                     </select>
                   </div>
                 </div>
-
                 <div className="form-grid-3" style={{ marginBottom: '24px' }}>
                   <div className="form-group">
                     <label className="input-label">Date of Birth</label>
-                    <input
-                      type="date"
-                      value={visaDob}
-                      onChange={(e) => setVisaDob(e.target.value)}
-                      className="input-field"
-                    />
+                    <input type="date" value={visaDob} onChange={(e) => setVisaDob(e.target.value)} className="input-field" />
                   </div>
-
                   <div className="form-group">
                     <label className="input-label">Date of Issue</label>
-                    <input
-                      type="date"
-                      value={visaDoi}
-                      onChange={(e) => setVisaDoi(e.target.value)}
-                      className="input-field"
-                    />
+                    <input type="date" value={visaDoi} onChange={(e) => setVisaDoi(e.target.value)} className="input-field" />
                   </div>
-
                   <div className="form-group">
                     <label className="input-label">Date of Expiry (Valid Until) *</label>
-                    <input
-                      type="date"
-                      value={visaDoe}
-                      onChange={(e) => setVisaDoe(e.target.value)}
-                      className="input-field"
-                    />
+                    <input type="date" value={visaDoe} onChange={(e) => setVisaDoe(e.target.value)} className="input-field" />
                   </div>
+                </div>
                 </div>
 
                 {/* Step 2 Navigation Buttons */}
@@ -1108,7 +1233,7 @@ Authority: AuthentiQ Screening Portal`;
                 
                 <div className="doc-section-header">
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ fontSize: '1.2rem' }}>🪪</span>
+                    <span style={{ fontSize: '1.2rem' }}>ðŸªª</span>
                     <div>
                       <h3 style={{ fontSize: '1.05rem', fontWeight: '700', color: 'var(--text)', margin: 0 }}>
                         Step 3 of 4: National ID (Indian Aadhaar Card)
@@ -1124,126 +1249,109 @@ Authority: AuthentiQ Screening Portal`;
                 {/* Aadhaar Image Upload Box */}
                 <div
                   className="doc-upload-box"
-                  onClick={() => document.getElementById('national-id-file-input').click()}>
+                  onClick={() => !nationalIdVerifying && document.getElementById('national-id-file-input').click()}>
                   <input
                     id="national-id-file-input"
                     type="file"
-                    accept="image/*,application/pdf"
+                    accept="image/*"
                     style={{ display: 'none' }}
-                    onChange={(e) => handleFileChange(e.target.files[0], setNationalIdImg, setNationalIdFileName)}
+                    onChange={(e) => handleFileChange(
+                        e.target.files[0],
+                        setNationalIdImg,
+                        setNationalIdFileName,
+                        'Aadhaar or National ID',
+                        'national-id-file-input',
+                        setNationalIdVerifying,
+                        setNationalIdDocError,
+                        setNationalIdReady,
+                        (d) => {
+                          if (d.name) setNationalIdName(d.name);
+                          if (d.aadhaarNumber) setNationalIdNumber(d.aadhaarNumber);
+                          if (d.dob) setNationalIdDob(d.dob);
+                          if (d.gender) setNationalIdGender(d.gender);
+                          if (d.guardian) setNationalIdGuardian(d.guardian);
+                          if (d.address) setNationalIdAddress(d.address);
+                          if (d.pincode) setNationalIdPincode(d.pincode);
+                        }
+                      )}
+                    disabled={nationalIdVerifying}
                   />
                   {nationalIdImg ? (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '14px' }}>
-                      <img
-                        src={nationalIdImg}
-                        alt="National ID Preview"
-                        style={{ height: '76px', borderRadius: '4px', objectFit: 'contain', border: '1px solid var(--border)' }}
-                      />
+                      <img src={nationalIdImg} alt="National ID Preview" style={{ height: '76px', borderRadius: '4px', objectFit: 'contain', border: '1px solid var(--border)' }} />
                       <div style={{ textAlign: 'left' }}>
-                        <div style={{ fontSize: '0.84rem', fontWeight: '600', color: 'var(--text)' }}>
-                          {nationalIdFileName || 'aadhaar_card.jpg'}
-                        </div>
-                        <span style={{ fontSize: '0.72rem', color: 'var(--success)', fontWeight: '600' }}>✓ Image Attached (Click to change)</span>
+                        <div style={{ fontSize: '0.84rem', fontWeight: '600', color: 'var(--text)' }}>{nationalIdFileName}</div>
+                        {nationalIdReady
+                          ? <span style={{ fontSize: '0.72rem', color: 'var(--success)', fontWeight: '600' }}>âœ“ Verified &amp; Data Extracted (Click to change)</span>
+                          : <span style={{ fontSize: '0.72rem', color: 'var(--warning, #f59e0b)', fontWeight: '600' }}>â³ {nationalIdFileName}...</span>
+                        }
                       </div>
                     </div>
                   ) : (
                     <div>
-                      <Upload size={22} style={{ color: 'var(--text-dim)', margin: '0 auto 6px auto' }} />
-                      <div style={{ fontSize: '0.84rem', fontWeight: '600', color: 'var(--text)' }}>
-                        Click to Upload Aadhaar Card (Front / Full Page)
-                      </div>
-                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                        Supports JPG, PNG, WEBP, PDF
-                      </div>
+                      {nationalIdVerifying
+                        ? <div style={{ color: 'var(--text-dim)', marginBottom: '6px' }}>â³ {nationalIdFileName}</div>
+                        : <Upload size={22} style={{ color: 'var(--text-dim)', margin: '0 auto 6px auto' }} />
+                      }
+                      <div style={{ fontSize: '0.84rem', fontWeight: '600', color: 'var(--text)' }}>Click to Upload Aadhaar Card (Front / Full Page)</div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Supports JPG, PNG, WEBP</div>
                     </div>
                   )}
                 </div>
 
-                {/* Aadhaar Text Boxes Grid */}
+                {nationalIdDocError && (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '10px 14px', background: 'var(--danger-bg, #fef2f2)', border: '1px solid var(--danger-border, #fecaca)', borderRadius: 'var(--radius-sm)', marginTop: '10px', marginBottom: '6px' }}>
+                    <AlertCircle size={15} style={{ color: 'var(--danger, #ef4444)', flexShrink: 0, marginTop: '1px' }} />
+                    <span style={{ fontSize: '0.78rem', color: 'var(--danger, #ef4444)', fontWeight: '500' }}>{nationalIdDocError}</span>
+                  </div>
+                )}
+
+                {/* Aadhaar Fields â€” locked until OCR done */}
+                <div style={{ opacity: nationalIdReady ? 1 : 0.45, pointerEvents: nationalIdReady ? 'auto' : 'none', transition: 'opacity 0.3s' }}>
+                  {!nationalIdReady && (
+                    <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>ðŸ”’</span>
+                      <span>{nationalIdVerifying ? 'AI is verifying and extracting data from your document...' : 'Upload and verify your document above to unlock these fields.'}</span>
+                    </div>
+                  )}
                 <div className="form-grid-3" style={{ marginBottom: '14px' }}>
                   <div className="form-group">
                     <label className="input-label">Full Name (as per Aadhaar) *</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Rahul Sharma"
-                      value={nationalIdName}
-                      onChange={(e) => setNationalIdName(e.target.value)}
-                      className="input-field"
-                    />
+                    <input type="text" placeholder="e.g. Rahul Sharma" value={nationalIdName} onChange={(e) => setNationalIdName(e.target.value)} className="input-field" />
                   </div>
-
                   <div className="form-group">
                     <label className="input-label">Aadhaar Card Number (12 Digits) *</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. 5489 9021 3418"
-                      value={nationalIdNumber}
-                      onChange={(e) => setNationalIdNumber(e.target.value)}
-                      className="input-field"
-                      style={{ fontFamily: 'var(--font-mono)' }}
-                    />
+                    <input type="text" placeholder="e.g. 5489 9021 3418" value={nationalIdNumber} onChange={(e) => setNationalIdNumber(e.target.value)} className="input-field" style={{ fontFamily: 'var(--font-mono)' }} />
                   </div>
-
                   <div className="form-group">
                     <label className="input-label">Date of Birth / Year of Birth *</label>
-                    <input
-                      type="date"
-                      value={nationalIdDob}
-                      onChange={(e) => setNationalIdDob(e.target.value)}
-                      className="input-field"
-                    />
+                    <input type="date" value={nationalIdDob} onChange={(e) => setNationalIdDob(e.target.value)} className="input-field" />
                   </div>
                 </div>
-
                 <div className="form-grid-3" style={{ marginBottom: '14px' }}>
                   <div className="form-group">
                     <label className="input-label">Gender *</label>
-                    <select
-                      value={nationalIdGender}
-                      onChange={(e) => setNationalIdGender(e.target.value)}
-                      className="input-field">
+                    <select value={nationalIdGender} onChange={(e) => setNationalIdGender(e.target.value)} className="input-field">
                       <option value="Male">Male</option>
                       <option value="Female">Female</option>
                       <option value="Transgender / Other">Transgender / Other</option>
                     </select>
                   </div>
-
                   <div className="form-group">
                     <label className="input-label">Father's / Guardian's Name (C/O)</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Suresh Sharma"
-                      value={nationalIdGuardian}
-                      onChange={(e) => setNationalIdGuardian(e.target.value)}
-                      className="input-field"
-                    />
+                    <input type="text" placeholder="e.g. Suresh Sharma" value={nationalIdGuardian} onChange={(e) => setNationalIdGuardian(e.target.value)} className="input-field" />
                   </div>
-
                   <div className="form-group">
                     <label className="input-label">Pincode *</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. 201301"
-                      value={nationalIdPincode}
-                      onChange={(e) => setNationalIdPincode(e.target.value)}
-                      className="input-field"
-                      style={{ fontFamily: 'var(--font-mono)' }}
-                    />
+                    <input type="text" placeholder="e.g. 201301" value={nationalIdPincode} onChange={(e) => setNationalIdPincode(e.target.value)} className="input-field" style={{ fontFamily: 'var(--font-mono)' }} />
                   </div>
                 </div>
-
                 <div className="form-grid-1" style={{ marginBottom: '24px' }}>
                   <div className="form-group">
                     <label className="input-label">Complete Residential Address (as on Aadhaar) *</label>
-                    <textarea
-                      placeholder="House/Flat No, Street, Landmark, Village/City, District, State"
-                      value={nationalIdAddress}
-                      onChange={(e) => setNationalIdAddress(e.target.value)}
-                      className="input-field"
-                      rows={2}
-                      style={{ resize: 'vertical' }}
-                    />
+                    <textarea placeholder="House/Flat No, Street, Landmark, Village/City, District, State" value={nationalIdAddress} onChange={(e) => setNationalIdAddress(e.target.value)} className="input-field" rows={2} style={{ resize: 'vertical' }} />
                   </div>
+                </div>
                 </div>
 
                 {/* Step 3 Navigation Buttons */}
@@ -1278,7 +1386,7 @@ Authority: AuthentiQ Screening Portal`;
                 
                 <div className="doc-section-header">
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ fontSize: '1.2rem' }}>🚗</span>
+                    <span style={{ fontSize: '1.2rem' }}>ðŸš—</span>
                     <div>
                       <h3 style={{ fontSize: '1.05rem', fontWeight: '700', color: 'var(--text)', margin: 0 }}>
                         Step 4 of 4: Driving License (Optional)
@@ -1294,139 +1402,114 @@ Authority: AuthentiQ Screening Portal`;
                 {/* DL Image Upload Box */}
                 <div
                   className="doc-upload-box"
-                  onClick={() => document.getElementById('dl-file-input').click()}>
+                  onClick={() => !dlVerifying && document.getElementById('dl-file-input').click()}>
                   <input
                     id="dl-file-input"
                     type="file"
-                    accept="image/*,application/pdf"
+                    accept="image/*"
                     style={{ display: 'none' }}
-                    onChange={(e) => handleFileChange(e.target.files[0], setDlImg, setDlFileName)}
+                    onChange={(e) => handleFileChange(
+                        e.target.files[0],
+                        setDlImg,
+                        setDlFileName,
+                        'Driving License',
+                        'dl-file-input',
+                        setDlVerifying,
+                        setDlDocError,
+                        setDlReady,
+                        (d) => {
+                          if (d.name) setDlName(d.name);
+                          if (d.dlNumber) setDlNumber(d.dlNumber);
+                          if (d.dob) setDlDob(d.dob);
+                          if (d.bloodGroup) setDlBloodGroup(d.bloodGroup);
+                          if (d.vehicleClass) setDlVehicleClass(d.vehicleClass);
+                          if (d.doi) setDlDoi(d.doi);
+                          if (d.doe) setDlDoe(d.doe);
+                          if (d.rto) setDlRto(d.rto);
+                        }
+                      )}
+                    disabled={dlVerifying}
                   />
                   {dlImg ? (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '14px' }}>
-                      <img
-                        src={dlImg}
-                        alt="Driving License Preview"
-                        style={{ height: '76px', borderRadius: '4px', objectFit: 'contain', border: '1px solid var(--border)' }}
-                      />
+                      <img src={dlImg} alt="Driving License Preview" style={{ height: '76px', borderRadius: '4px', objectFit: 'contain', border: '1px solid var(--border)' }} />
                       <div style={{ textAlign: 'left' }}>
-                        <div style={{ fontSize: '0.84rem', fontWeight: '600', color: 'var(--text)' }}>
-                          {dlFileName || 'driving_license.jpg'}
-                        </div>
-                        <span style={{ fontSize: '0.72rem', color: 'var(--success)', fontWeight: '600' }}>✓ Image Attached (Click to change)</span>
+                        <div style={{ fontSize: '0.84rem', fontWeight: '600', color: 'var(--text)' }}>{dlFileName}</div>
+                        {dlReady
+                          ? <span style={{ fontSize: '0.72rem', color: 'var(--success)', fontWeight: '600' }}>&#x2713; Verified &amp; Data Extracted (Click to change)</span>
+                          : <span style={{ fontSize: '0.72rem', color: 'var(--warning, #f59e0b)', fontWeight: '600' }}>&#x23F3; {dlFileName}...</span>
+                        }
                       </div>
                     </div>
                   ) : (
                     <div>
-                      <Upload size={22} style={{ color: 'var(--text-dim)', margin: '0 auto 6px auto' }} />
-                      <div style={{ fontSize: '0.84rem', fontWeight: '600', color: 'var(--text)' }}>
-                        Click to Upload Driving License Copy (Optional)
-                      </div>
-                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                        Supports JPG, PNG, WEBP, PDF
-                      </div>
+                      {dlVerifying
+                        ? <div style={{ color: 'var(--text-dim)', marginBottom: '6px' }}>&#x23F3; {dlFileName}</div>
+                        : <Upload size={22} style={{ color: 'var(--text-dim)', margin: '0 auto 6px auto' }} />
+                      }
+                      <div style={{ fontSize: '0.84rem', fontWeight: '600', color: 'var(--text)' }}>Click to Upload Driving License Copy (Optional)</div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Supports JPG, PNG, WEBP</div>
                     </div>
                   )}
                 </div>
 
-                {/* DL Text Boxes Grid */}
+                {dlDocError && (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '10px 14px', background: 'var(--danger-bg, #fef2f2)', border: '1px solid var(--danger-border, #fecaca)', borderRadius: 'var(--radius-sm)', marginTop: '10px', marginBottom: '6px' }}>
+                    <AlertCircle size={15} style={{ color: 'var(--danger, #ef4444)', flexShrink: 0, marginTop: '1px' }} />
+                    <span style={{ fontSize: '0.78rem', color: 'var(--danger, #ef4444)', fontWeight: '500' }}>{dlDocError}</span>
+                  </div>
+                )}
+
+                <div style={{ opacity: dlReady ? 1 : 0.45, pointerEvents: dlReady ? 'auto' : 'none', transition: 'opacity 0.3s' }}>
+                  {!dlReady && (
+                    <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>&#x1F512;</span>
+                      <span>{dlVerifying ? 'AI is verifying and extracting data from your document...' : 'Upload your DL above to unlock these fields, or skip this step.'}</span>
+                    </div>
+                  )}
                 <div className="form-grid-3" style={{ marginBottom: '14px' }}>
                   <div className="form-group">
                     <label className="input-label">Full Name (as on Driving License)</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Rahul Sharma"
-                      value={dlName}
-                      onChange={(e) => setDlName(e.target.value)}
-                      className="input-field"
-                    />
+                    <input type="text" placeholder="e.g. Rahul Sharma" value={dlName} onChange={(e) => setDlName(e.target.value)} className="input-field" />
                   </div>
-
                   <div className="form-group">
                     <label className="input-label">Driving License Number</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. DL-1420110012345"
-                      value={dlNumber}
-                      onChange={(e) => setDlNumber(e.target.value.toUpperCase())}
-                      className="input-field"
-                      style={{ fontFamily: 'var(--font-mono)' }}
-                    />
+                    <input type="text" placeholder="e.g. DL-1420110012345" value={dlNumber} onChange={(e) => setDlNumber(e.target.value.toUpperCase())} className="input-field" style={{ fontFamily: 'var(--font-mono)' }} />
                   </div>
-
                   <div className="form-group">
                     <label className="input-label">Date of Birth</label>
-                    <input
-                      type="date"
-                      value={dlDob}
-                      onChange={(e) => setDlDob(e.target.value)}
-                      className="input-field"
-                    />
+                    <input type="date" value={dlDob} onChange={(e) => setDlDob(e.target.value)} className="input-field" />
                   </div>
                 </div>
-
                 <div className="form-grid-3" style={{ marginBottom: '14px' }}>
                   <div className="form-group">
                     <label className="input-label">Blood Group</label>
-                    <select
-                      value={dlBloodGroup}
-                      onChange={(e) => setDlBloodGroup(e.target.value)}
-                      className="input-field">
-                      <option value="A+">A+</option>
-                      <option value="B+">B+</option>
-                      <option value="O+">O+</option>
-                      <option value="AB+">AB+</option>
-                      <option value="A-">A-</option>
-                      <option value="B-">B-</option>
-                      <option value="O-">O-</option>
-                      <option value="AB-">AB-</option>
+                    <select value={dlBloodGroup} onChange={(e) => setDlBloodGroup(e.target.value)} className="input-field">
+                      <option value="A+">A+</option><option value="B+">B+</option><option value="O+">O+</option><option value="AB+">AB+</option>
+                      <option value="A-">A-</option><option value="B-">B-</option><option value="O-">O-</option><option value="AB-">AB-</option>
                     </select>
                   </div>
-
                   <div className="form-group">
                     <label className="input-label">Vehicle Class / Category</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. LMV, MCWG"
-                      value={dlVehicleClass}
-                      onChange={(e) => setDlVehicleClass(e.target.value)}
-                      className="input-field"
-                    />
+                    <input type="text" placeholder="e.g. LMV, MCWG" value={dlVehicleClass} onChange={(e) => setDlVehicleClass(e.target.value)} className="input-field" />
                   </div>
-
                   <div className="form-group">
                     <label className="input-label">Issuing RTO / Authority</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. DL-14 Janakpuri RTO"
-                      value={dlRto}
-                      onChange={(e) => setDlRto(e.target.value)}
-                      className="input-field"
-                    />
+                    <input type="text" placeholder="e.g. DL-14 Janakpuri RTO" value={dlRto} onChange={(e) => setDlRto(e.target.value)} className="input-field" />
                   </div>
                 </div>
-
                 <div className="form-grid-2" style={{ marginBottom: '24px' }}>
                   <div className="form-group">
                     <label className="input-label">Date of Issue</label>
-                    <input
-                      type="date"
-                      value={dlDoi}
-                      onChange={(e) => setDlDoi(e.target.value)}
-                      className="input-field"
-                    />
+                    <input type="date" value={dlDoi} onChange={(e) => setDlDoi(e.target.value)} className="input-field" />
                   </div>
-
                   <div className="form-group">
                     <label className="input-label">Valid Till / Expiry Date</label>
-                    <input
-                      type="date"
-                      value={dlDoe}
-                      onChange={(e) => setDlDoe(e.target.value)}
-                      className="input-field"
-                    />
+                    <input type="date" value={dlDoe} onChange={(e) => setDlDoe(e.target.value)} className="input-field" />
                   </div>
                 </div>
+                </div>
+
 
                 {/* Step 4 Navigation Buttons */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1470,7 +1553,7 @@ Authority: AuthentiQ Screening Portal`;
                 
                 <div className="doc-section-header">
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ fontSize: '1.2rem' }}>📋</span>
+                    <span style={{ fontSize: '1.2rem' }}>ðŸ“‹</span>
                     <div>
                       <h3 style={{ fontSize: '1.05rem', fontWeight: '700', color: 'var(--text)', margin: 0 }}>
                         Review Your Document Application
@@ -1489,7 +1572,7 @@ Authority: AuthentiQ Screening Portal`;
                   {/* Passport Summary */}
                   <div style={{ background: 'var(--surface-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '14px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                      <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--text)' }}>🛂 1. Passport</span>
+                      <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--text)' }}>ðŸ›‚ 1. Passport</span>
                       <button
                         type="button"
                         onClick={() => setUploadStep(1)}
@@ -1506,7 +1589,7 @@ Authority: AuthentiQ Screening Portal`;
                       />
                     )}
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                      No: <strong style={{ color: 'var(--text)' }}>{passportNumber || '—'}</strong>
+                      No: <strong style={{ color: 'var(--text)' }}>{passportNumber || 'â€”'}</strong>
                     </div>
                     <div style={{ fontSize: '0.74rem', color: 'var(--text-dim)' }}>
                       Name: {passportName || userName}
@@ -1516,7 +1599,7 @@ Authority: AuthentiQ Screening Portal`;
                   {/* Visa Summary */}
                   <div style={{ background: 'var(--surface-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '14px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                      <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--text)' }}>📄 2. Visa Document</span>
+                      <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--text)' }}>ðŸ“„ 2. Visa Document</span>
                       <button
                         type="button"
                         onClick={() => setUploadStep(2)}
@@ -1533,7 +1616,7 @@ Authority: AuthentiQ Screening Portal`;
                       />
                     )}
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                      No: <strong style={{ color: 'var(--text)' }}>{visaNumber || '—'}</strong>
+                      No: <strong style={{ color: 'var(--text)' }}>{visaNumber || 'â€”'}</strong>
                     </div>
                     <div style={{ fontSize: '0.74rem', color: 'var(--text-dim)' }}>
                       Type: {visaType} ({visaEntryType})
@@ -1543,7 +1626,7 @@ Authority: AuthentiQ Screening Portal`;
                   {/* National ID Summary */}
                   <div style={{ background: 'var(--surface-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '14px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                      <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--text)' }}>🪪 3. Aadhaar Card</span>
+                      <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--text)' }}>ðŸªª 3. Aadhaar Card</span>
                       <button
                         type="button"
                         onClick={() => setUploadStep(3)}
@@ -1560,17 +1643,17 @@ Authority: AuthentiQ Screening Portal`;
                       />
                     )}
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                      No: <strong style={{ color: 'var(--text)' }}>{nationalIdNumber || '—'}</strong>
+                      No: <strong style={{ color: 'var(--text)' }}>{nationalIdNumber || 'â€”'}</strong>
                     </div>
                     <div style={{ fontSize: '0.74rem', color: 'var(--text-dim)' }}>
-                      Pincode: {nationalIdPincode || '—'}
+                      Pincode: {nationalIdPincode || 'â€”'}
                     </div>
                   </div>
 
                   {/* Driving License Summary */}
                   <div style={{ background: 'var(--surface-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '14px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                      <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--text)' }}>🚗 4. Driving License</span>
+                      <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--text)' }}>ðŸš— 4. Driving License</span>
                       <button
                         type="button"
                         onClick={() => setUploadStep(4)}
@@ -1729,7 +1812,7 @@ Authority: AuthentiQ Screening Portal`;
                             {app.id}
                           </span>
                           <span style={{ fontSize: '0.74rem', color: 'var(--text-dim)' }}>
-                            • Submitted on {new Date(app.created_at || Date.now()).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            â€¢ Submitted on {new Date(app.created_at || Date.now()).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
                           </span>
                         </div>
                       </div>
@@ -1796,7 +1879,7 @@ Authority: AuthentiQ Screening Portal`;
                       {/* Passport Summary */}
                       <div style={{ background: 'var(--surface-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                          <span style={{ fontSize: '0.76rem', fontWeight: '700', color: 'var(--text)' }}>🛂 Passport</span>
+                          <span style={{ fontSize: '0.76rem', fontWeight: '700', color: 'var(--text)' }}>ðŸ›‚ Passport</span>
                           {app.passport_image && (
                             <button
                               type="button"
@@ -1808,7 +1891,7 @@ Authority: AuthentiQ Screening Portal`;
                           )}
                         </div>
                         <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                          No: <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>{app.passport_number || '—'}</strong>
+                          No: <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>{app.passport_number || 'â€”'}</strong>
                         </div>
                         <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>
                           Name: {app.passport_name || app.applicant_name}
@@ -1818,7 +1901,7 @@ Authority: AuthentiQ Screening Portal`;
                       {/* Visa Summary */}
                       <div style={{ background: 'var(--surface-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                          <span style={{ fontSize: '0.76rem', fontWeight: '700', color: 'var(--text)' }}>📄 Visa Document</span>
+                          <span style={{ fontSize: '0.76rem', fontWeight: '700', color: 'var(--text)' }}>ðŸ“„ Visa Document</span>
                           {app.visa_image && (
                             <button
                               type="button"
@@ -1830,7 +1913,7 @@ Authority: AuthentiQ Screening Portal`;
                           )}
                         </div>
                         <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                          No: <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>{app.visa_number || '—'}</strong>
+                          No: <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>{app.visa_number || 'â€”'}</strong>
                         </div>
                         <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>
                           Type: {app.visa_type || 'Tourist'} ({app.visa_entry_type || 'Multiple'})
@@ -1840,7 +1923,7 @@ Authority: AuthentiQ Screening Portal`;
                       {/* National ID Summary */}
                       <div style={{ background: 'var(--surface-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                          <span style={{ fontSize: '0.76rem', fontWeight: '700', color: 'var(--text)' }}>🪪 Aadhaar / National ID</span>
+                          <span style={{ fontSize: '0.76rem', fontWeight: '700', color: 'var(--text)' }}>ðŸªª Aadhaar / National ID</span>
                           {app.national_id_image && (
                             <button
                               type="button"
@@ -1852,7 +1935,7 @@ Authority: AuthentiQ Screening Portal`;
                           )}
                         </div>
                         <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                          No: <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>{app.national_id_number || '—'}</strong>
+                          No: <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>{app.national_id_number || 'â€”'}</strong>
                         </div>
                         <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>
                           Address: {app.national_id_address ? `${app.national_id_address.slice(0, 30)}...` : 'Provided'}
@@ -1863,7 +1946,7 @@ Authority: AuthentiQ Screening Portal`;
                       {app.driving_license_number && (
                         <div style={{ background: 'var(--surface-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                            <span style={{ fontSize: '0.76rem', fontWeight: '700', color: 'var(--text)' }}>🚗 Driving License</span>
+                            <span style={{ fontSize: '0.76rem', fontWeight: '700', color: 'var(--text)' }}>ðŸš— Driving License</span>
                             {app.driving_license_image && (
                               <button
                                 type="button"
@@ -1878,7 +1961,7 @@ Authority: AuthentiQ Screening Portal`;
                             No: <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>{app.driving_license_number}</strong>
                           </div>
                           <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>
-                            Class: {app.driving_license_vehicle_class || 'LMV'} • Blood: {app.driving_license_blood_group || 'O+'}
+                            Class: {app.driving_license_vehicle_class || 'LMV'} â€¢ Blood: {app.driving_license_blood_group || 'O+'}
                           </div>
                         </div>
                       )}
@@ -1934,7 +2017,7 @@ Authority: AuthentiQ Screening Portal`;
                     style={{ width: 'auto', padding: '5px 10px', fontSize: '0.8rem' }}>
                     {applications.map(app => (
                       <option key={app.id} value={app.id}>
-                        {app.id} — Status: {app.status}
+                        {app.id} â€” Status: {app.status}
                       </option>
                     ))}
                   </select>
@@ -2085,7 +2168,7 @@ Authority: AuthentiQ Screening Portal`;
                   color: 'var(--text-dim)'
                 }}>
                   <div>
-                    AuthentiQ Digital Screening Gateway • E-Gate Identity Verified
+                    AuthentiQ Digital Screening Gateway â€¢ E-Gate Identity Verified
                   </div>
                   <div style={{ fontWeight: '600', color: 'var(--text)' }}>
                     Digitally Sealed & Verified
@@ -2214,7 +2297,7 @@ Authority: AuthentiQ Screening Portal`;
                 onClick={handleDismissUserIdModal}
                 className="btn-primary"
                 style={{ width: '100%', padding: '9px 16px', fontSize: '0.84rem', fontWeight: '600' }}>
-                I Have Saved My ID — Continue
+                I Have Saved My ID â€” Continue
               </button>
 
             </div>
@@ -2249,7 +2332,7 @@ Authority: AuthentiQ Screening Portal`;
                   onClick={() => setPreviewImageModal(null)}
                   className="btn-subtle"
                   style={{ padding: '4px 8px' }}>
-                  ✕ Close
+                  âœ• Close
                 </button>
               </div>
               <div style={{ textAlign: 'center', background: '#000', borderRadius: 'var(--radius-sm)', padding: '10px' }}>
