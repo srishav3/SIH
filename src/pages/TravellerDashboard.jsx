@@ -1,377 +1,2271 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useLocation } from 'react-router-dom';
 import { 
-  ShieldCheck, 
-  User, 
-  Plane, 
-  FileText, 
   Upload, 
   CheckCircle2, 
-  AlertTriangle, 
-  Sparkles, 
-  Scan, 
-  QrCode, 
-  FileCheck, 
   Clock, 
-  ArrowUpRight,
-  Fingerprint,
-  RefreshCw
+  XCircle, 
+  FileText, 
+  Award, 
+  Copy, 
+  Check, 
+  Printer, 
+  Search, 
+  Eye, 
+  Trash2, 
+  ShieldCheck, 
+  AlertCircle, 
+  Sparkles, 
+  ArrowRight, 
+  ArrowLeft, 
+  Edit3, 
+  KeyRound, 
+  Info 
 } from 'lucide-react';
+import QRCode from 'qrcode';
 import { useAuth } from '../context/AuthContext';
-import { recordDocumentScan } from '../lib/supabase';
+import { useTheme } from '../context/ThemeContext';
+import { fetchUserApplications, saveDocumentApplication } from '../lib/supabase';
+
+// Standard QR Code Image Component (100% compliant with Google Lens & Camera scanners)
+function ScannableQRCode({ payload, size = 180 }) {
+  const [qrDataUrl, setQrDataUrl] = useState('');
+
+  useEffect(() => {
+    if (!payload) return;
+    QRCode.toDataURL(payload, {
+      errorCorrectionLevel: 'M',
+      margin: 1.5,
+      width: size * 2,
+      color: {
+        dark: '#000000',
+        light: '#ffffff'
+      }
+    })
+      .then(url => setQrDataUrl(url))
+      .catch(err => console.error('QR code generation error:', err));
+  }, [payload, size]);
+
+  if (!qrDataUrl) {
+    return (
+      <div style={{
+        width: `${size}px`,
+        height: `${size}px`,
+        background: '#ffffff',
+        border: '1px solid var(--border)',
+        borderRadius: 'var(--radius-sm)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: '0.75rem',
+        color: '#64748b'
+      }}>
+        Generating QR...
+      </div>
+    );
+  }
+
+  return (
+    <div style={{
+      padding: '10px',
+      background: '#ffffff',
+      borderRadius: 'var(--radius-sm)',
+      display: 'inline-block',
+      boxShadow: '0 2px 10px rgba(0, 0, 0, 0.08)',
+      border: '1px solid var(--border)',
+      textAlign: 'center'
+    }}>
+      <img
+        src={qrDataUrl}
+        alt="Verification QR Code"
+        style={{
+          width: `${size}px`,
+          height: `${size}px`,
+          display: 'block'
+        }}
+      />
+    </div>
+  );
+}
 
 export default function TravellerDashboard() {
   const { currentUser } = useAuth();
-  
-  // Interactive scanning state
-  const [selectedDocType, setSelectedDocType] = useState('Passport');
-  const [docNumber, setDocNumber] = useState('');
-  const [isScanning, setIsScanning] = useState(false);
-  const [scanStep, setScanStep] = useState(0);
-  const [scanResult, setScanResult] = useState(null);
+  const { theme } = useTheme();
+  const location = useLocation();
 
-  // Initial dummy scan history
-  const [scanHistory, setScanHistory] = useState([
-    {
-      id: 'SCN-84920',
-      document_type: 'Passport',
-      document_number: 'P8923411',
-      issuer_country: 'IND',
-      tamper_score: 0.2,
-      ai_status: 'VERIFIED',
-      scanned_at: '2 hours ago'
-    },
-    {
-      id: 'SCN-84912',
-      document_type: 'National ID',
-      document_number: 'NID-940212',
-      issuer_country: 'IND',
-      tamper_score: 0.8,
-      ai_status: 'VERIFIED',
-      scanned_at: '3 days ago'
+  const userId = currentUser?.user_id || 'TUSER10001';
+  const userName = `${currentUser?.first_name || ''} ${currentUser?.last_name || ''}`.trim() || 'Traveller';
+  const userEmail = currentUser?.email || 'traveller@authentiq.gov.in';
+
+  // Active Main Tab: 'upload' | 'status' | 'certificate'
+  const [activeTab, setActiveTab] = useState('upload');
+
+  // Page 1 Wizard Step: 1 = Passport, 2 = Visa, 3 = National ID, 4 = DL, 5 = Review & Submit
+  const [uploadStep, setUploadStep] = useState(1);
+
+  // Applications list
+  const [applications, setApplications] = useState([]);
+  const [loadingApps, setLoadingApps] = useState(true);
+
+  // Status Filter on Page 2: 'ALL' | 'UNDER_REVIEW' | 'PASSED' | 'REJECTED'
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Selected application for Certificate view (Tab 3) & Image Modal
+  const [selectedCertAppId, setSelectedCertAppId] = useState(null);
+  const [previewImageModal, setPreviewImageModal] = useState(null);
+
+  // User ID copy state
+  const [copiedUserId, setCopiedUserId] = useState(false);
+
+  // User ID Notice Popup Modal: ONLY opens when navigated from SignUpPage, NOT from SignIn
+  const [showUserIdModal, setShowUserIdModal] = useState(() => {
+    try {
+      const isFromSignUp = Boolean(
+        location.state?.fromSignUp || 
+        sessionStorage.getItem('authentiq_just_signed_up') === 'true'
+      );
+      if (isFromSignUp) {
+        sessionStorage.removeItem('authentiq_just_signed_up');
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
     }
-  ]);
+  });
 
-  const handleStartScan = async (e) => {
-    e.preventDefault();
-    if (!docNumber.trim()) return;
-
-    setIsScanning(true);
-    setScanResult(null);
-    setScanStep(1);
-
-    // Simulate multi-stage AI Neural screening
-    setTimeout(() => setScanStep(2), 700);
-    setTimeout(() => setScanStep(3), 1400);
-
-    setTimeout(async () => {
-      setIsScanning(false);
-      const isClean = Math.random() > 0.15; // 85% clean verification
-      const tamperScore = isClean ? (Math.random() * 2.5).toFixed(1) : (75.0 + Math.random() * 20).toFixed(1);
-      const status = isClean ? 'VERIFIED' : 'SUSPICIOUS';
-
-      const newScan = {
-        user_id: currentUser?.user_id || 'TUSER1234',
-        document_type: selectedDocType,
-        document_number: docNumber.trim().toUpperCase(),
-        issuer_country: 'IND',
-        tamper_score: parseFloat(tamperScore),
-        ai_status: status,
-        hologram_status: isClean ? 'AUTHENTIC' : 'MICRO-TEXTURE ANOMALY',
-        mrz_checksum_valid: isClean,
-        face_match_score: isClean ? 99.4 : 64.2
-      };
-
-      // Save to Supabase / Local storage
-      await recordDocumentScan(newScan);
-
-      setScanResult(newScan);
-      setScanHistory([
-        { ...newScan, id: 'SCN-' + Math.floor(10000 + Math.random() * 90000), scanned_at: 'Just now' },
-        ...scanHistory
-      ]);
-    }, 2200);
+  const handleDismissUserIdModal = () => {
+    setShowUserIdModal(false);
   };
 
-  return (
-    <div className="container" style={{ padding: '32px 24px', minHeight: 'calc(100vh - 140px)' }}>
-      
-      {/* Welcome Banner */}
-      <div className="glass-panel" style={{ padding: '28px 32px', marginBottom: '32px', position: 'relative', overflow: 'hidden' }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '20px' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-              <span className="badge-pill badge-cyan">Traveller Clearance Portal</span>
-              <span className="badge-pill badge-emerald">
-                <CheckCircle2 size={12} /> AI Verified
-              </span>
-            </div>
-            <h1 style={{ fontSize: '1.85rem', fontWeight: '800', color: '#f8fafc', margin: 0 }}>
-              Welcome back, {currentUser?.first_name || 'Traveller'} {currentUser?.last_name}
-            </h1>
-            <p style={{ fontSize: '0.88rem', color: '#94a3b8', marginTop: '6px' }}>
-              Your digital identity is linked to AuthentiQ neural document screening network.
-            </p>
-          </div>
+  // ----------------------------------------------------
+  // Page 1: 4 Document Slots State & Form Fields
+  // ----------------------------------------------------
+  
+  // 1. Passport (Compulsory)
+  const [passportImg, setPassportImg] = useState('');
+  const [passportFileName, setPassportFileName] = useState('');
+  const [passportName, setPassportName] = useState('');
+  const [passportNumber, setPassportNumber] = useState('');
+  const [passportNationality, setPassportNationality] = useState('Indian (IND)');
+  const [passportDob, setPassportDob] = useState('');
+  const [passportDoe, setPassportDoe] = useState('');
+  const [passportGender, setPassportGender] = useState('Male');
+  const [passportPlaceOfIssue, setPassportPlaceOfIssue] = useState('');
+  const [passportDoi, setPassportDoi] = useState('');
 
-          {/* User ID Highlight Card */}
-          <div style={{
-            background: 'rgba(6, 182, 212, 0.12)',
-            border: '1px solid rgba(56, 189, 248, 0.35)',
-            borderRadius: '12px',
-            padding: '12px 20px',
-            textAlign: 'right'
-          }}>
-            <div style={{ fontSize: '0.72rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              AuthentiQ User ID
+  // 2. Visa Document (Compulsory)
+  const [visaImg, setVisaImg] = useState('');
+  const [visaFileName, setVisaFileName] = useState('');
+  const [visaName, setVisaName] = useState('');
+  const [visaNumber, setVisaNumber] = useState('');
+  const [visaType, setVisaType] = useState('Tourist / Transit');
+  const [visaEntryType, setVisaEntryType] = useState('Multiple Entry');
+  const [visaNationality, setVisaNationality] = useState('Indian (IND)');
+  const [visaDob, setVisaDob] = useState('');
+  const [visaDoi, setVisaDoi] = useState('');
+  const [visaDoe, setVisaDoe] = useState('');
+  const [visaGender, setVisaGender] = useState('Male');
+
+  // 3. National ID (Indian Aadhaar Card) (Compulsory)
+  const [nationalIdImg, setNationalIdImg] = useState('');
+  const [nationalIdFileName, setNationalIdFileName] = useState('');
+  const [nationalIdName, setNationalIdName] = useState('');
+  const [nationalIdNumber, setNationalIdNumber] = useState('');
+  const [nationalIdDob, setNationalIdDob] = useState('');
+  const [nationalIdGender, setNationalIdGender] = useState('Male');
+  const [nationalIdGuardian, setNationalIdGuardian] = useState('');
+  const [nationalIdAddress, setNationalIdAddress] = useState('');
+  const [nationalIdPincode, setNationalIdPincode] = useState('');
+
+  // 4. Driving License (Indian DL) (Optional)
+  const [dlImg, setDlImg] = useState('');
+  const [dlFileName, setDlFileName] = useState('');
+  const [dlName, setDlName] = useState('');
+  const [dlNumber, setDlNumber] = useState('');
+  const [dlDob, setDlDob] = useState('');
+  const [dlBloodGroup, setDlBloodGroup] = useState('O+');
+  const [dlVehicleClass, setDlVehicleClass] = useState('LMV, MCWG');
+  const [dlDoi, setDlDoi] = useState('');
+  const [dlDoe, setDlDoe] = useState('');
+  const [dlRto, setDlRto] = useState('');
+
+  // Form submitting / validation feedback
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [stepError, setStepError] = useState('');
+  const [uploadSuccessApp, setUploadSuccessApp] = useState(null);
+
+  // Load user applications on mount (Strictly user-submitted, no mock data)
+  useEffect(() => {
+    async function load() {
+      setLoadingApps(true);
+      try {
+        const data = await fetchUserApplications(userId);
+        setApplications(data || []);
+        if (data && data.length > 0) {
+          const firstPassed = data.find(a => a.status === 'PASSED') || data[0];
+          setSelectedCertAppId(firstPassed.id);
+        }
+      } catch (err) {
+        console.error('Error loading applications:', err);
+      } finally {
+        setLoadingApps(false);
+      }
+    }
+    load();
+  }, [userId]);
+
+  // Generic file reader helper
+  const handleFileChange = (file, setImg, setFileName) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/') && file.type !== 'application/pdf') {
+      alert('Please select a valid image file (JPG, PNG, WEBP) or PDF.');
+      return;
+    }
+    setFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      setImg(e.target.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // 1-Click Demo Sample Autofill
+  const handleLoadSampleDocuments = () => {
+    const defaultName = userName !== 'Traveller' ? userName : 'Rahul Sharma';
+
+    // 1. Passport
+    setPassportImg('https://images.unsplash.com/photo-1544717305-2782549b5136?w=600&auto=format&fit=crop&q=80');
+    setPassportFileName('sample_indian_passport.jpg');
+    setPassportName(defaultName);
+    setPassportNumber('Z9824102');
+    setPassportNationality('Indian (IND)');
+    setPassportDob('1996-05-14');
+    setPassportDoi('2021-08-10');
+    setPassportDoe('2031-08-09');
+    setPassportGender('Male');
+    setPassportPlaceOfIssue('Regional Passport Office, Delhi');
+
+    // 2. Visa
+    setVisaImg('https://images.unsplash.com/photo-1589829545856-d10d557cf95f?w=600&auto=format&fit=crop&q=80');
+    setVisaFileName('sample_visa_doc.jpg');
+    setVisaName(defaultName);
+    setVisaNumber('VISA-IND-904128');
+    setVisaType('Tourist / Transit');
+    setVisaEntryType('Multiple Entry');
+    setVisaNationality('Indian (IND)');
+    setVisaDob('1996-05-14');
+    setVisaDoi('2026-01-15');
+    setVisaDoe('2027-01-14');
+    setVisaGender('Male');
+
+    // 3. National ID (Aadhaar)
+    setNationalIdImg('https://images.unsplash.com/photo-1557804506-669a67965ba0?w=600&auto=format&fit=crop&q=80');
+    setNationalIdFileName('sample_aadhaar_card.jpg');
+    setNationalIdName(defaultName);
+    setNationalIdNumber('5489 9021 3418');
+    setNationalIdDob('1996-05-14');
+    setNationalIdGender('Male');
+    setNationalIdGuardian('Suresh Sharma (Father)');
+    setNationalIdAddress('Flat 402, Green Valley Apartments, Sector 62, Noida, Uttar Pradesh');
+    setNationalIdPincode('201301');
+
+    // 4. Driving License
+    setDlImg('https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=600&auto=format&fit=crop&q=80');
+    setDlFileName('sample_driving_license.jpg');
+    setDlName(defaultName);
+    setDlNumber('DL-1420110012345');
+    setDlDob('1996-05-14');
+    setDlBloodGroup('O+');
+    setDlVehicleClass('LMV, MCWG');
+    setDlDoi('2018-03-20');
+    setDlDoe('2038-03-19');
+    setDlRto('DL-14 Janakpuri RTO, New Delhi');
+
+    setStepError('');
+  };
+
+  // Step Validation & Forward Navigation
+  const handleNextFromPassport = (e) => {
+    if (e) e.preventDefault();
+    setStepError('');
+    if (!passportImg) {
+      setStepError('Passport copy is compulsory. Please attach your passport image.');
+      return;
+    }
+    if (!passportNumber.trim()) {
+      setStepError('Please enter your Passport Number.');
+      return;
+    }
+    setUploadStep(2);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleNextFromVisa = (e) => {
+    if (e) e.preventDefault();
+    setStepError('');
+    if (!visaImg) {
+      setStepError('Visa document is compulsory. Please attach your visa image.');
+      return;
+    }
+    if (!visaNumber.trim()) {
+      setStepError('Please enter your Visa Number.');
+      return;
+    }
+    setUploadStep(3);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleNextFromNationalId = (e) => {
+    if (e) e.preventDefault();
+    setStepError('');
+    if (!nationalIdImg) {
+      setStepError('National ID (Aadhaar) copy is compulsory. Please attach your Aadhaar card image.');
+      return;
+    }
+    if (!nationalIdNumber.trim()) {
+      setStepError('Please enter your Aadhaar / National ID Card Number.');
+      return;
+    }
+    setUploadStep(4);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleNextFromDl = (e) => {
+    if (e) e.preventDefault();
+    setStepError('');
+    setUploadStep(5);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Final Application Submission (from Step 5)
+  const handleSubmitApplication = async () => {
+    setStepError('');
+    setIsSubmitting(true);
+
+    try {
+      const payload = {
+        user_id: userId,
+        applicant_name: passportName.trim() || userName,
+        
+        // 1. Passport Details
+        passport_image: passportImg,
+        passport_name: passportName.trim() || userName,
+        passport_number: passportNumber.trim().toUpperCase(),
+        passport_nationality: passportNationality,
+        passport_dob: passportDob,
+        passport_doe: passportDoe,
+        passport_gender: passportGender,
+        passport_place_of_issue: passportPlaceOfIssue,
+        passport_doi: passportDoi,
+
+        // 2. Visa Details
+        visa_image: visaImg,
+        visa_name: visaName.trim() || passportName.trim() || userName,
+        visa_number: visaNumber.trim().toUpperCase(),
+        visa_type: visaType,
+        visa_entry_type: visaEntryType,
+        visa_nationality: visaNationality,
+        visa_dob: visaDob || passportDob,
+        visa_doi: visaDoi,
+        visa_doe: visaDoe,
+        visa_gender: visaGender,
+
+        // 3. National ID Details
+        national_id_image: nationalIdImg,
+        national_id_name: nationalIdName.trim() || passportName.trim() || userName,
+        national_id_number: nationalIdNumber.trim().toUpperCase(),
+        national_id_dob: nationalIdDob || passportDob,
+        national_id_gender: nationalIdGender,
+        national_id_guardian: nationalIdGuardian,
+        national_id_address: nationalIdAddress,
+        national_id_pincode: nationalIdPincode,
+
+        // 4. Driving License Details (Optional)
+        driving_license_image: dlImg || '',
+        driving_license_name: dlName.trim(),
+        driving_license_number: dlNumber.trim().toUpperCase(),
+        driving_license_dob: dlDob,
+        driving_license_blood_group: dlBloodGroup,
+        driving_license_vehicle_class: dlVehicleClass,
+        driving_license_doi: dlDoi,
+        driving_license_doe: dlDoe,
+        driving_license_rto: dlRto,
+
+        status: 'PASSED'
+      };
+
+      const result = await saveDocumentApplication(payload);
+      const saved = result.data;
+
+      setApplications(prev => [saved, ...prev.filter(a => a.id !== saved.id)]);
+      setSelectedCertAppId(saved.id);
+      setUploadSuccessApp(saved);
+
+      // Reset form fields
+      setPassportImg('');
+      setPassportFileName('');
+      setPassportName('');
+      setPassportNumber('');
+      setPassportDob('');
+      setPassportDoe('');
+      setPassportPlaceOfIssue('');
+      setPassportDoi('');
+
+      setVisaImg('');
+      setVisaFileName('');
+      setVisaName('');
+      setVisaNumber('');
+      setVisaDob('');
+      setVisaDoi('');
+      setVisaDoe('');
+
+      setNationalIdImg('');
+      setNationalIdFileName('');
+      setNationalIdName('');
+      setNationalIdNumber('');
+      setNationalIdDob('');
+      setNationalIdGuardian('');
+      setNationalIdAddress('');
+      setNationalIdPincode('');
+
+      setDlImg('');
+      setDlFileName('');
+      setDlName('');
+      setDlNumber('');
+      setDlDob('');
+      setDlDoi('');
+      setDlDoe('');
+      setDlRto('');
+
+      setUploadStep(1);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (err) {
+      console.error('Submission error:', err);
+      setStepError('Failed to submit application. Please check your network connection and try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Filtered applications list on Page 2
+  const filteredApps = useMemo(() => {
+    return applications.filter(app => {
+      const matchesFilter = 
+        statusFilter === 'ALL' ? true :
+        statusFilter === 'PASSED' ? app.status === 'PASSED' :
+        statusFilter === 'UNDER_REVIEW' ? app.status === 'UNDER_REVIEW' :
+        statusFilter === 'REJECTED' ? app.status === 'REJECTED' : true;
+
+      const q = searchQuery.toLowerCase().trim();
+      const matchesSearch = !q || 
+        (app.id && app.id.toLowerCase().includes(q)) ||
+        (app.passport_number && app.passport_number.toLowerCase().includes(q)) ||
+        (app.national_id_number && app.national_id_number.toLowerCase().includes(q));
+
+      return matchesFilter && matchesSearch;
+    });
+  }, [applications, statusFilter, searchQuery]);
+
+  // Selected Certificate Application on Page 3
+  const currentCertApp = useMemo(() => {
+    if (selectedCertAppId) {
+      const found = applications.find(a => a.id === selectedCertAppId);
+      if (found) return found;
+    }
+    return applications.find(a => a.status === 'PASSED') || applications[0] || null;
+  }, [applications, selectedCertAppId]);
+
+  // QR Code payload (Google Lens / Camera Scannable)
+  const qrPayloadString = useMemo(() => {
+    if (!currentCertApp) return `AuthentiQ Identity Verification | User ID: ${userId} | Status: PASSED`;
+    const certId = currentCertApp.certificate_id || `AUTH-CERT-${userId.slice(-6)}`;
+    const validUntil = currentCertApp.valid_until || '27 Aug 2027';
+    return `AuthentiQ Digital Verification Certificate
+Certificate ID: ${certId}
+Applicant: ${currentCertApp.applicant_name || userName}
+User ID: ${userId}
+Status: PASSED & VERIFIED
+Passport No: ${currentCertApp.passport_number || 'VERIFIED'}
+National ID (Aadhaar): ${currentCertApp.national_id_number || 'VERIFIED'}
+Visa No: ${currentCertApp.visa_number || 'VERIFIED'}
+Valid Till: ${validUntil}
+Authority: AuthentiQ Screening Portal`;
+  }, [currentCertApp, userId, userName]);
+
+  // Copy User ID Helper
+  const handleCopyUserId = () => {
+    if (userId) {
+      navigator.clipboard.writeText(userId);
+      setCopiedUserId(true);
+      setTimeout(() => setCopiedUserId(false), 2000);
+    }
+  };
+
+  const passedCount = applications.filter(a => a.status === 'PASSED').length;
+  const underReviewCount = applications.filter(a => a.status === 'UNDER_REVIEW').length;
+
+  return (
+    <div style={{ minHeight: 'calc(100vh - 120px)', paddingBottom: '48px' }}>
+      
+      {/* Tricolor National Header Strip */}
+      <div className="gov-header-strip"></div>
+
+      <div className="container" style={{ paddingTop: '20px' }}>
+        
+        {/* =========================================================
+            HEADER & PORTAL BRANDING BANNER
+            ========================================================= */}
+        <div className="minimal-card" style={{ padding: '20px 24px', marginBottom: '20px' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
+            
+            {/* Title */}
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+                <span style={{ fontSize: '0.74rem', fontWeight: '800', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text)' }}>
+                  AuthentiQ
+                </span>
+                <span className="badge badge-traveller" style={{ fontSize: '0.68rem' }}>
+                  Traveller Portal
+                </span>
+              </div>
+              <h1 style={{ fontSize: '1.35rem', fontWeight: '700', color: 'var(--text)', margin: 0, letterSpacing: '-0.01em' }}>
+                AI Based Fake Identity and Document Screening Portal
+              </h1>
             </div>
-            <div style={{ fontSize: '1.3rem', fontWeight: '800', fontFamily: 'var(--font-mono)', color: '#22d3ee' }}>
-              {currentUser?.user_id || 'TXXXXX1234'}
+
+            {/* User ID Card */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              background: 'var(--surface-subtle)',
+              border: '1px solid var(--border)',
+              padding: '6px 12px',
+              borderRadius: 'var(--radius-sm)'
+            }}>
+              <div>
+                <div style={{ fontSize: '0.66rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Assigned User ID
+                </div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', fontWeight: '700', color: 'var(--text)' }}>
+                  {userId}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '4px' }}>
+                <button
+                  type="button"
+                  onClick={handleCopyUserId}
+                  className="btn-subtle"
+                  style={{ padding: '4px 8px', fontSize: '0.72rem' }}
+                  title="Copy User ID">
+                  {copiedUserId ? <Check size={13} style={{ color: 'var(--success)' }} /> : <Copy size={13} />}
+                  <span>{copiedUserId ? 'Copied' : 'Copy'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowUserIdModal(true)}
+                  className="btn-subtle"
+                  style={{ padding: '4px 6px', fontSize: '0.72rem' }}
+                  title="View User ID Safety Instructions">
+                  <Info size={13} />
+                </button>
+              </div>
             </div>
-            <div style={{ fontSize: '0.7rem', color: '#34d399', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
-              <Fingerprint size={12} /> Biometrics Linked
-            </div>
+
           </div>
         </div>
-      </div>
 
-      {/* Main Grid: Screening Tool & Digital ID Pass */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '28px', marginBottom: '32px' }}>
-        
-        {/* Left: AI Document Upload & Screening Simulator */}
-        <div className="glass-panel" style={{ padding: '24px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-            <Scan size={22} color="#22d3ee" />
-            <h2 style={{ fontSize: '1.25rem', fontWeight: '700', color: '#f8fafc', margin: 0 }}>
-              Submit Document for AI Screening
-            </h2>
-          </div>
+        {/* =========================================================
+            SIDEBAR + CONTENT LAYOUT
+            ========================================================= */}
+        <div className="dashboard-layout" style={{ display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
 
-          <form onSubmit={handleStartScan} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            
-            <div>
-              <label className="input-label">Document Category</label>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
-                {['Passport', 'Visa', 'National ID'].map((type) => (
-                  <button
-                    key={type}
-                    type="button"
-                    onClick={() => setSelectedDocType(type)}
-                    className="glass-card"
-                    style={{
-                      padding: '10px',
-                      borderRadius: '8px',
-                      cursor: 'pointer',
-                      border: selectedDocType === type ? '2px solid #22d3ee' : '1px solid rgba(255, 255, 255, 0.1)',
-                      background: selectedDocType === type ? 'rgba(6, 182, 212, 0.2)' : 'rgba(15, 23, 42, 0.5)',
-                      color: selectedDocType === type ? '#22d3ee' : '#94a3b8',
-                      fontWeight: '600',
-                      fontSize: '0.82rem'
-                    }}>
-                    {type}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <label className="input-label">Document Number / Passport ID</label>
-              <input
-                type="text"
-                className="input-field input-mono"
-                placeholder="e.g. Z9876543"
-                value={docNumber}
-                onChange={(e) => setDocNumber(e.target.value.toUpperCase())}
-                required
-              />
-            </div>
-
-            {/* Document Upload Area */}
-            <div style={{
-              border: '2px dashed rgba(56, 189, 248, 0.3)',
-              borderRadius: '12px',
-              padding: '24px',
-              textAlign: 'center',
-              background: 'rgba(10, 15, 29, 0.5)',
-              position: 'relative',
-              overflow: 'hidden'
-            }}>
-              {isScanning && <div className="scanner-laser"></div>}
-              
-              <Upload size={28} color="#38bdf8" style={{ margin: '0 auto 10px auto' }} />
-              <div style={{ fontSize: '0.88rem', fontWeight: '600', color: '#f8fafc' }}>
-                {isScanning ? 'AI Neural Analyzer Processing...' : 'Upload Document Scan / Photo'}
-              </div>
-              <p style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '4px' }}>
-                Supports High-Res JPG, PNG, PDF with Optical Security Strip
-              </p>
-
-              {isScanning && (
-                <div style={{ marginTop: '14px', fontSize: '0.8rem', color: '#22d3ee', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-                  <RefreshCw size={14} className="animate-spin" />
-                  {scanStep === 1 && 'Extracting MRZ & Optical Checksums...'}
-                  {scanStep === 2 && 'Inspecting Hologram Micro-patterns & UV Watermarks...'}
-                  {scanStep === 3 && 'Checking Deepfake Face-Match & Global Watchlists...'}
-                </div>
-              )}
-            </div>
-
+          {/* LEFT SIDEBAR NAV */}
+          <div className="dashboard-sidebar" style={{
+            width: '220px',
+            flexShrink: 0,
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-md)',
+            padding: '8px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '4px',
+            position: 'sticky',
+            top: '84px'
+          }}>
+            {/* Tab 1: Upload Documents */}
             <button
-              type="submit"
-              disabled={isScanning || !docNumber.trim()}
-              className="btn-primary btn-glow">
-              <Sparkles size={18} />
-              {isScanning ? 'Running Neural Forensics...' : 'Analyze & Screen Document'}
+              type="button"
+              className={`portal-tab-btn ${activeTab === 'upload' ? 'active' : ''}`}
+              onClick={() => setActiveTab('upload')}
+              style={{ width: '100%', justifyContent: 'flex-start', textAlign: 'left' }}>
+              <Upload size={15} />
+              <span>1. Upload Documents</span>
             </button>
 
-          </form>
+            {/* Tab 2: Application Status */}
+            <button
+              type="button"
+              className={`portal-tab-btn ${activeTab === 'status' ? 'active' : ''}`}
+              onClick={() => setActiveTab('status')}
+              style={{ width: '100%', justifyContent: 'flex-start', textAlign: 'left' }}>
+              <FileText size={15} />
+              <span>2. Application Status</span>
+              <span className="tab-badge" style={{ marginLeft: 'auto' }}>{applications.length}</span>
+            </button>
 
-          {/* AI Scan Result Box */}
-          {scanResult && (
-            <div style={{
-              marginTop: '20px',
-              padding: '16px',
-              borderRadius: '12px',
-              background: scanResult.ai_status === 'VERIFIED' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(244, 63, 94, 0.12)',
-              border: `1px solid ${scanResult.ai_status === 'VERIFIED' ? 'rgba(52, 211, 153, 0.4)' : 'rgba(251, 113, 133, 0.4)'}`
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                <span className={scanResult.ai_status === 'VERIFIED' ? 'badge-pill badge-emerald' : 'badge-pill badge-rose'}>
-                  {scanResult.ai_status}
+            {/* Tab 3: Verification Certificate */}
+            <button
+              type="button"
+              className={`portal-tab-btn ${activeTab === 'certificate' ? 'active' : ''}`}
+              onClick={() => setActiveTab('certificate')}
+              style={{ width: '100%', justifyContent: 'flex-start', textAlign: 'left' }}>
+              <Award size={15} />
+              <span>3. Verification Certificate</span>
+              {passedCount > 0 && (
+                <span className="tab-badge" style={{ marginLeft: 'auto', background: 'var(--success-bg)', color: 'var(--success)', borderColor: 'var(--success-border)' }}>
+                  {passedCount} Ready
                 </span>
-                <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
-                  Forgery Risk Score: <strong style={{ color: scanResult.tamper_score < 5 ? '#34d399' : '#fb7185' }}>{scanResult.tamper_score}%</strong>
-                </span>
-              </div>
-              <div style={{ fontSize: '0.85rem', color: '#f8fafc' }}>
-                Document <strong>{scanResult.document_number}</strong> passed MRZ & Holographic checks with a Face Match confidence of <strong>{scanResult.face_match_score}%</strong>.
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Right: AuthentiQ Digital Identity Card */}
-        <div className="glass-panel" style={{ padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <QrCode size={22} color="#38bdf8" />
-                <h2 style={{ fontSize: '1.25rem', fontWeight: '700', color: '#f8fafc', margin: 0 }}>
-                  AuthentiQ Travel Pass
-                </h2>
-              </div>
-              <span className="badge-pill badge-cyan">Fast-Track Active</span>
-            </div>
-
-            {/* Futuristic ID Pass Card */}
-            <div style={{
-              background: 'linear-gradient(135deg, #090e1f 0%, #1e1b4b 100%)',
-              border: '1px solid rgba(56, 189, 248, 0.4)',
-              borderRadius: '16px',
-              padding: '20px',
-              boxShadow: '0 8px 30px rgba(6, 182, 212, 0.2)',
-              position: 'relative'
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
-                <div>
-                  <div style={{ fontSize: '0.7rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                    AuthentiQ Global Identity
-                  </div>
-                  <div style={{ fontSize: '1.1rem', fontWeight: '800', color: '#f8fafc' }}>
-                    {currentUser?.first_name} {currentUser?.last_name || ''}
-                  </div>
-                </div>
-                <ShieldCheck size={28} color="#22d3ee" />
-              </div>
-
-              <div style={{
-                fontSize: '1.4rem',
-                fontWeight: '900',
-                fontFamily: 'var(--font-mono)',
-                color: '#38bdf8',
-                letterSpacing: '0.12em',
-                marginBottom: '14px'
-              }}>
-                {currentUser?.user_id || 'TAUTHO1234'}
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '0.75rem', borderTop: '1px solid rgba(255, 255, 255, 0.1)', paddingTop: '12px' }}>
-                <div>
-                  <span style={{ color: '#64748b' }}>Role Clearance:</span>
-                  <div style={{ color: '#f8fafc', fontWeight: '600' }}>Verified Traveller</div>
-                </div>
-                <div>
-                  <span style={{ color: '#64748b' }}>AI Trust Index:</span>
-                  <div style={{ color: '#34d399', fontWeight: '700' }}>99.2% (Tier A)</div>
-                </div>
-              </div>
-            </div>
+              )}
+            </button>
           </div>
 
+          {/* RIGHT CONTENT PANEL */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+        {/* =========================================================
+            PAGE 1: STEP-BY-STEP UPLOAD WIZARD
+            ========================================================= */}
+        {activeTab === 'upload' && (
+          <div>
+            
+            {/* Success Alert */}
+            {uploadSuccessApp && (
+              <div className="alert-box alert-success" style={{ marginBottom: '20px', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <CheckCircle2 size={20} style={{ flexShrink: 0 }} />
+                  <div>
+                    <strong>Application Submitted Successfully!</strong> Application Reference ID: <code style={{ fontWeight: '700' }}>{uploadSuccessApp.id}</code>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('status')}
+                    className="btn-secondary"
+                    style={{ padding: '5px 10px', fontSize: '0.76rem' }}>
+                    Check Status
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCertAppId(uploadSuccessApp.id);
+                      setActiveTab('certificate');
+                    }}
+                    className="btn-primary"
+                    style={{ padding: '5px 10px', fontSize: '0.76rem' }}>
+                    View Certificate
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Error Alert */}
+            {stepError && (
+              <div className="alert-box alert-danger" style={{ marginBottom: '20px' }}>
+                <AlertCircle size={18} style={{ flexShrink: 0 }} />
+                <div>{stepError}</div>
+              </div>
+            )}
+
+            {/* Wizard Step Progress Indicator */}
+            <div className="wizard-progress-bar">
+              <div
+                className={`wizard-step-node ${uploadStep === 1 ? 'active' : uploadStep > 1 ? 'completed' : ''}`}
+                onClick={() => setUploadStep(1)}>
+                <span className="wizard-step-num">{uploadStep > 1 ? '✓' : '1'}</span>
+                <span>1. Passport</span>
+              </div>
+
+              <span className="wizard-arrow">→</span>
+
+              <div
+                className={`wizard-step-node ${uploadStep === 2 ? 'active' : uploadStep > 2 ? 'completed' : ''}`}
+                onClick={() => { if (passportImg && passportNumber) setUploadStep(2); }}>
+                <span className="wizard-step-num">{uploadStep > 2 ? '✓' : '2'}</span>
+                <span>2. Visa Document</span>
+              </div>
+
+              <span className="wizard-arrow">→</span>
+
+              <div
+                className={`wizard-step-node ${uploadStep === 3 ? 'active' : uploadStep > 3 ? 'completed' : ''}`}
+                onClick={() => { if (visaImg && visaNumber) setUploadStep(3); }}>
+                <span className="wizard-step-num">{uploadStep > 3 ? '✓' : '3'}</span>
+                <span>3. National ID (Aadhaar)</span>
+              </div>
+
+              <span className="wizard-arrow">→</span>
+
+              <div
+                className={`wizard-step-node ${uploadStep === 4 ? 'active' : uploadStep > 4 ? 'completed' : ''}`}
+                onClick={() => { if (nationalIdImg && nationalIdNumber) setUploadStep(4); }}>
+                <span className="wizard-step-num">{uploadStep > 4 ? '✓' : '4'}</span>
+                <span>4. Driving License</span>
+              </div>
+
+              <span className="wizard-arrow">→</span>
+
+              <div
+                className={`wizard-step-node ${uploadStep === 5 ? 'active' : ''}`}
+                onClick={() => { if (nationalIdImg && nationalIdNumber) setUploadStep(5); }}>
+                <span className="wizard-step-num">5</span>
+                <span>5. Review & Submit</span>
+              </div>
+            </div>
+
+            {/* Quick Demo Autofill Button */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
+              <button
+                type="button"
+                onClick={handleLoadSampleDocuments}
+                className="btn-secondary"
+                style={{ fontSize: '0.76rem', padding: '6px 12px', gap: '6px' }}>
+                <Sparkles size={14} />
+                <span>Fill Sample Details (Demo)</span>
+              </button>
+            </div>
+
+            {/* =========================================================
+                STEP 1: PASSPORT BLOCK (COMPULSORY)
+                ========================================================= */}
+            {uploadStep === 1 && (
+              <div className="doc-section-card">
+                
+                <div className="doc-section-header">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '1.2rem' }}>🛂</span>
+                    <div>
+                      <h3 style={{ fontSize: '1.05rem', fontWeight: '700', color: 'var(--text)', margin: 0 }}>
+                        Step 1 of 4: Passport Information
+                      </h3>
+                      <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                        Upload your Passport photo copy and fill details below
+                      </span>
+                    </div>
+                  </div>
+                  <span className="badge badge-compulsory">Compulsory *</span>
+                </div>
+
+                {/* Passport Image Upload Box */}
+                <div
+                  className="doc-upload-box"
+                  onClick={() => document.getElementById('passport-file-input').click()}>
+                  <input
+                    id="passport-file-input"
+                    type="file"
+                    accept="image/*,application/pdf"
+                    style={{ display: 'none' }}
+                    onChange={(e) => handleFileChange(e.target.files[0], setPassportImg, setPassportFileName)}
+                  />
+                  {passportImg ? (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '14px' }}>
+                      <img
+                        src={passportImg}
+                        alt="Passport Preview"
+                        style={{ height: '76px', borderRadius: '4px', objectFit: 'contain', border: '1px solid var(--border)' }}
+                      />
+                      <div style={{ textAlign: 'left' }}>
+                        <div style={{ fontSize: '0.84rem', fontWeight: '600', color: 'var(--text)' }}>
+                          {passportFileName || 'passport_scan.jpg'}
+                        </div>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--success)', fontWeight: '600' }}>✓ Image Attached (Click to change)</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <Upload size={22} style={{ color: 'var(--text-dim)', margin: '0 auto 6px auto' }} />
+                      <div style={{ fontSize: '0.84rem', fontWeight: '600', color: 'var(--text)' }}>
+                        Click to Upload Passport Photo Page
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                        Supports JPG, PNG, WEBP, PDF
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Passport Text Boxes Grid */}
+                <div className="form-grid-3" style={{ marginBottom: '14px' }}>
+                  <div className="form-group">
+                    <label className="input-label">Full Name (as on Passport) *</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Rahul Sharma"
+                      value={passportName}
+                      onChange={(e) => setPassportName(e.target.value)}
+                      className="input-field"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="input-label">Passport Number *</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Z9824102"
+                      value={passportNumber}
+                      onChange={(e) => setPassportNumber(e.target.value.toUpperCase())}
+                      className="input-field"
+                      style={{ fontFamily: 'var(--font-mono)' }}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="input-label">Nationality *</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Indian (IND)"
+                      value={passportNationality}
+                      onChange={(e) => setPassportNationality(e.target.value)}
+                      className="input-field"
+                    />
+                  </div>
+                </div>
+
+                <div className="form-grid-3" style={{ marginBottom: '14px' }}>
+                  <div className="form-group">
+                    <label className="input-label">Date of Birth (DOB) *</label>
+                    <input
+                      type="date"
+                      value={passportDob}
+                      onChange={(e) => setPassportDob(e.target.value)}
+                      className="input-field"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="input-label">Gender *</label>
+                    <select
+                      value={passportGender}
+                      onChange={(e) => setPassportGender(e.target.value)}
+                      className="input-field">
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="input-label">Place of Issue</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Delhi / Mumbai"
+                      value={passportPlaceOfIssue}
+                      onChange={(e) => setPassportPlaceOfIssue(e.target.value)}
+                      className="input-field"
+                    />
+                  </div>
+                </div>
+
+                <div className="form-grid-2" style={{ marginBottom: '24px' }}>
+                  <div className="form-group">
+                    <label className="input-label">Date of Issue</label>
+                    <input
+                      type="date"
+                      value={passportDoi}
+                      onChange={(e) => setPassportDoi(e.target.value)}
+                      className="input-field"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="input-label">Date of Expiry *</label>
+                    <input
+                      type="date"
+                      value={passportDoe}
+                      onChange={(e) => setPassportDoe(e.target.value)}
+                      className="input-field"
+                    />
+                  </div>
+                </div>
+
+                {/* Step 1 Navigation Button */}
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button
+                    type="button"
+                    onClick={handleNextFromPassport}
+                    className="btn-primary"
+                    style={{ padding: '10px 20px', gap: '8px' }}>
+                    <span>Next: Visa Document</span>
+                    <ArrowRight size={16} />
+                  </button>
+                </div>
+
+              </div>
+            )}
+
+            {/* =========================================================
+                STEP 2: VISA BLOCK (COMPULSORY)
+                ========================================================= */}
+            {uploadStep === 2 && (
+              <div className="doc-section-card">
+                
+                <div className="doc-section-header">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '1.2rem' }}>📄</span>
+                    <div>
+                      <h3 style={{ fontSize: '1.05rem', fontWeight: '700', color: 'var(--text)', margin: 0 }}>
+                        Step 2 of 4: Visa Document Information
+                      </h3>
+                      <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                        Upload your Visa permit copy and fill details below
+                      </span>
+                    </div>
+                  </div>
+                  <span className="badge badge-compulsory">Compulsory *</span>
+                </div>
+
+                {/* Visa Image Upload Box */}
+                <div
+                  className="doc-upload-box"
+                  onClick={() => document.getElementById('visa-file-input').click()}>
+                  <input
+                    id="visa-file-input"
+                    type="file"
+                    accept="image/*,application/pdf"
+                    style={{ display: 'none' }}
+                    onChange={(e) => handleFileChange(e.target.files[0], setVisaImg, setVisaFileName)}
+                  />
+                  {visaImg ? (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '14px' }}>
+                      <img
+                        src={visaImg}
+                        alt="Visa Preview"
+                        style={{ height: '76px', borderRadius: '4px', objectFit: 'contain', border: '1px solid var(--border)' }}
+                      />
+                      <div style={{ textAlign: 'left' }}>
+                        <div style={{ fontSize: '0.84rem', fontWeight: '600', color: 'var(--text)' }}>
+                          {visaFileName || 'visa_doc.jpg'}
+                        </div>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--success)', fontWeight: '600' }}>✓ Image Attached (Click to change)</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <Upload size={22} style={{ color: 'var(--text-dim)', margin: '0 auto 6px auto' }} />
+                      <div style={{ fontSize: '0.84rem', fontWeight: '600', color: 'var(--text)' }}>
+                        Click to Upload Visa Document / Permit Copy
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                        Supports JPG, PNG, WEBP, PDF
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Visa Text Boxes Grid */}
+                <div className="form-grid-3" style={{ marginBottom: '14px' }}>
+                  <div className="form-group">
+                    <label className="input-label">Full Name (as on Visa) *</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Rahul Sharma"
+                      value={visaName}
+                      onChange={(e) => setVisaName(e.target.value)}
+                      className="input-field"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="input-label">Visa Number *</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. VISA-IND-904128"
+                      value={visaNumber}
+                      onChange={(e) => setVisaNumber(e.target.value.toUpperCase())}
+                      className="input-field"
+                      style={{ fontFamily: 'var(--font-mono)' }}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="input-label">Visa Type / Category *</label>
+                    <select
+                      value={visaType}
+                      onChange={(e) => setVisaType(e.target.value)}
+                      className="input-field">
+                      <option value="Tourist / Transit">Tourist / Transit Visa</option>
+                      <option value="Business / Conference">Business / Conference Visa</option>
+                      <option value="Student / Academic">Student / Academic Visa</option>
+                      <option value="Employment / Work">Employment / Work Visa</option>
+                      <option value="Diplomatic / Official">Diplomatic / Official Visa</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="form-grid-3" style={{ marginBottom: '14px' }}>
+                  <div className="form-group">
+                    <label className="input-label">Entry Validation *</label>
+                    <select
+                      value={visaEntryType}
+                      onChange={(e) => setVisaEntryType(e.target.value)}
+                      className="input-field">
+                      <option value="Single Entry">Single Entry</option>
+                      <option value="Double Entry">Double Entry</option>
+                      <option value="Multiple Entry">Multiple Entry</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="input-label">Nationality *</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Indian (IND)"
+                      value={visaNationality}
+                      onChange={(e) => setVisaNationality(e.target.value)}
+                      className="input-field"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="input-label">Gender</label>
+                    <select
+                      value={visaGender}
+                      onChange={(e) => setVisaGender(e.target.value)}
+                      className="input-field">
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="form-grid-3" style={{ marginBottom: '24px' }}>
+                  <div className="form-group">
+                    <label className="input-label">Date of Birth</label>
+                    <input
+                      type="date"
+                      value={visaDob}
+                      onChange={(e) => setVisaDob(e.target.value)}
+                      className="input-field"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="input-label">Date of Issue</label>
+                    <input
+                      type="date"
+                      value={visaDoi}
+                      onChange={(e) => setVisaDoi(e.target.value)}
+                      className="input-field"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="input-label">Date of Expiry (Valid Until) *</label>
+                    <input
+                      type="date"
+                      value={visaDoe}
+                      onChange={(e) => setVisaDoe(e.target.value)}
+                      className="input-field"
+                    />
+                  </div>
+                </div>
+
+                {/* Step 2 Navigation Buttons */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    onClick={() => setUploadStep(1)}
+                    className="btn-secondary"
+                    style={{ padding: '10px 16px', gap: '6px' }}>
+                    <ArrowLeft size={16} />
+                    <span>Back to Passport</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleNextFromVisa}
+                    className="btn-primary"
+                    style={{ padding: '10px 20px', gap: '8px' }}>
+                    <span>Next: National ID (Aadhaar)</span>
+                    <ArrowRight size={16} />
+                  </button>
+                </div>
+
+              </div>
+            )}
+
+            {/* =========================================================
+                STEP 3: NATIONAL ID / AADHAAR BLOCK (COMPULSORY)
+                ========================================================= */}
+            {uploadStep === 3 && (
+              <div className="doc-section-card">
+                
+                <div className="doc-section-header">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '1.2rem' }}>🪪</span>
+                    <div>
+                      <h3 style={{ fontSize: '1.05rem', fontWeight: '700', color: 'var(--text)', margin: 0 }}>
+                        Step 3 of 4: National ID (Indian Aadhaar Card)
+                      </h3>
+                      <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                        Upload your Aadhaar card and fill resident details below
+                      </span>
+                    </div>
+                  </div>
+                  <span className="badge badge-compulsory">Compulsory *</span>
+                </div>
+
+                {/* Aadhaar Image Upload Box */}
+                <div
+                  className="doc-upload-box"
+                  onClick={() => document.getElementById('national-id-file-input').click()}>
+                  <input
+                    id="national-id-file-input"
+                    type="file"
+                    accept="image/*,application/pdf"
+                    style={{ display: 'none' }}
+                    onChange={(e) => handleFileChange(e.target.files[0], setNationalIdImg, setNationalIdFileName)}
+                  />
+                  {nationalIdImg ? (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '14px' }}>
+                      <img
+                        src={nationalIdImg}
+                        alt="National ID Preview"
+                        style={{ height: '76px', borderRadius: '4px', objectFit: 'contain', border: '1px solid var(--border)' }}
+                      />
+                      <div style={{ textAlign: 'left' }}>
+                        <div style={{ fontSize: '0.84rem', fontWeight: '600', color: 'var(--text)' }}>
+                          {nationalIdFileName || 'aadhaar_card.jpg'}
+                        </div>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--success)', fontWeight: '600' }}>✓ Image Attached (Click to change)</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <Upload size={22} style={{ color: 'var(--text-dim)', margin: '0 auto 6px auto' }} />
+                      <div style={{ fontSize: '0.84rem', fontWeight: '600', color: 'var(--text)' }}>
+                        Click to Upload Aadhaar Card (Front / Full Page)
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                        Supports JPG, PNG, WEBP, PDF
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Aadhaar Text Boxes Grid */}
+                <div className="form-grid-3" style={{ marginBottom: '14px' }}>
+                  <div className="form-group">
+                    <label className="input-label">Full Name (as per Aadhaar) *</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Rahul Sharma"
+                      value={nationalIdName}
+                      onChange={(e) => setNationalIdName(e.target.value)}
+                      className="input-field"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="input-label">Aadhaar Card Number (12 Digits) *</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 5489 9021 3418"
+                      value={nationalIdNumber}
+                      onChange={(e) => setNationalIdNumber(e.target.value)}
+                      className="input-field"
+                      style={{ fontFamily: 'var(--font-mono)' }}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="input-label">Date of Birth / Year of Birth *</label>
+                    <input
+                      type="date"
+                      value={nationalIdDob}
+                      onChange={(e) => setNationalIdDob(e.target.value)}
+                      className="input-field"
+                    />
+                  </div>
+                </div>
+
+                <div className="form-grid-3" style={{ marginBottom: '14px' }}>
+                  <div className="form-group">
+                    <label className="input-label">Gender *</label>
+                    <select
+                      value={nationalIdGender}
+                      onChange={(e) => setNationalIdGender(e.target.value)}
+                      className="input-field">
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                      <option value="Transgender / Other">Transgender / Other</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="input-label">Father's / Guardian's Name (C/O)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Suresh Sharma"
+                      value={nationalIdGuardian}
+                      onChange={(e) => setNationalIdGuardian(e.target.value)}
+                      className="input-field"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="input-label">Pincode *</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 201301"
+                      value={nationalIdPincode}
+                      onChange={(e) => setNationalIdPincode(e.target.value)}
+                      className="input-field"
+                      style={{ fontFamily: 'var(--font-mono)' }}
+                    />
+                  </div>
+                </div>
+
+                <div className="form-grid-1" style={{ marginBottom: '24px' }}>
+                  <div className="form-group">
+                    <label className="input-label">Complete Residential Address (as on Aadhaar) *</label>
+                    <textarea
+                      placeholder="House/Flat No, Street, Landmark, Village/City, District, State"
+                      value={nationalIdAddress}
+                      onChange={(e) => setNationalIdAddress(e.target.value)}
+                      className="input-field"
+                      rows={2}
+                      style={{ resize: 'vertical' }}
+                    />
+                  </div>
+                </div>
+
+                {/* Step 3 Navigation Buttons */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    onClick={() => setUploadStep(2)}
+                    className="btn-secondary"
+                    style={{ padding: '10px 16px', gap: '6px' }}>
+                    <ArrowLeft size={16} />
+                    <span>Back to Visa</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleNextFromNationalId}
+                    className="btn-primary"
+                    style={{ padding: '10px 20px', gap: '8px' }}>
+                    <span>Next: Driving License (Optional)</span>
+                    <ArrowRight size={16} />
+                  </button>
+                </div>
+
+              </div>
+            )}
+
+            {/* =========================================================
+                STEP 4: DRIVING LICENSE BLOCK (OPTIONAL)
+                ========================================================= */}
+            {uploadStep === 4 && (
+              <div className="doc-section-card">
+                
+                <div className="doc-section-header">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '1.2rem' }}>🚗</span>
+                    <div>
+                      <h3 style={{ fontSize: '1.05rem', fontWeight: '700', color: 'var(--text)', margin: 0 }}>
+                        Step 4 of 4: Driving License (Optional)
+                      </h3>
+                      <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                        You can attach your Indian Driving License or skip this step
+                      </span>
+                    </div>
+                  </div>
+                  <span className="badge badge-optional">Optional</span>
+                </div>
+
+                {/* DL Image Upload Box */}
+                <div
+                  className="doc-upload-box"
+                  onClick={() => document.getElementById('dl-file-input').click()}>
+                  <input
+                    id="dl-file-input"
+                    type="file"
+                    accept="image/*,application/pdf"
+                    style={{ display: 'none' }}
+                    onChange={(e) => handleFileChange(e.target.files[0], setDlImg, setDlFileName)}
+                  />
+                  {dlImg ? (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '14px' }}>
+                      <img
+                        src={dlImg}
+                        alt="Driving License Preview"
+                        style={{ height: '76px', borderRadius: '4px', objectFit: 'contain', border: '1px solid var(--border)' }}
+                      />
+                      <div style={{ textAlign: 'left' }}>
+                        <div style={{ fontSize: '0.84rem', fontWeight: '600', color: 'var(--text)' }}>
+                          {dlFileName || 'driving_license.jpg'}
+                        </div>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--success)', fontWeight: '600' }}>✓ Image Attached (Click to change)</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <Upload size={22} style={{ color: 'var(--text-dim)', margin: '0 auto 6px auto' }} />
+                      <div style={{ fontSize: '0.84rem', fontWeight: '600', color: 'var(--text)' }}>
+                        Click to Upload Driving License Copy (Optional)
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                        Supports JPG, PNG, WEBP, PDF
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* DL Text Boxes Grid */}
+                <div className="form-grid-3" style={{ marginBottom: '14px' }}>
+                  <div className="form-group">
+                    <label className="input-label">Full Name (as on Driving License)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Rahul Sharma"
+                      value={dlName}
+                      onChange={(e) => setDlName(e.target.value)}
+                      className="input-field"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="input-label">Driving License Number</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. DL-1420110012345"
+                      value={dlNumber}
+                      onChange={(e) => setDlNumber(e.target.value.toUpperCase())}
+                      className="input-field"
+                      style={{ fontFamily: 'var(--font-mono)' }}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="input-label">Date of Birth</label>
+                    <input
+                      type="date"
+                      value={dlDob}
+                      onChange={(e) => setDlDob(e.target.value)}
+                      className="input-field"
+                    />
+                  </div>
+                </div>
+
+                <div className="form-grid-3" style={{ marginBottom: '14px' }}>
+                  <div className="form-group">
+                    <label className="input-label">Blood Group</label>
+                    <select
+                      value={dlBloodGroup}
+                      onChange={(e) => setDlBloodGroup(e.target.value)}
+                      className="input-field">
+                      <option value="A+">A+</option>
+                      <option value="B+">B+</option>
+                      <option value="O+">O+</option>
+                      <option value="AB+">AB+</option>
+                      <option value="A-">A-</option>
+                      <option value="B-">B-</option>
+                      <option value="O-">O-</option>
+                      <option value="AB-">AB-</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="input-label">Vehicle Class / Category</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. LMV, MCWG"
+                      value={dlVehicleClass}
+                      onChange={(e) => setDlVehicleClass(e.target.value)}
+                      className="input-field"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="input-label">Issuing RTO / Authority</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. DL-14 Janakpuri RTO"
+                      value={dlRto}
+                      onChange={(e) => setDlRto(e.target.value)}
+                      className="input-field"
+                    />
+                  </div>
+                </div>
+
+                <div className="form-grid-2" style={{ marginBottom: '24px' }}>
+                  <div className="form-group">
+                    <label className="input-label">Date of Issue</label>
+                    <input
+                      type="date"
+                      value={dlDoi}
+                      onChange={(e) => setDlDoi(e.target.value)}
+                      className="input-field"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="input-label">Valid Till / Expiry Date</label>
+                    <input
+                      type="date"
+                      value={dlDoe}
+                      onChange={(e) => setDlDoe(e.target.value)}
+                      className="input-field"
+                    />
+                  </div>
+                </div>
+
+                {/* Step 4 Navigation Buttons */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    onClick={() => setUploadStep(3)}
+                    className="btn-secondary"
+                    style={{ padding: '10px 16px', gap: '6px' }}>
+                    <ArrowLeft size={16} />
+                    <span>Back to National ID</span>
+                  </button>
+
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <button
+                      type="button"
+                      onClick={() => setUploadStep(5)}
+                      className="btn-secondary"
+                      style={{ padding: '10px 16px' }}>
+                      <span>Skip This Step</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleNextFromDl}
+                      className="btn-primary"
+                      style={{ padding: '10px 20px', gap: '8px' }}>
+                      <span>Review & Submit</span>
+                      <ArrowRight size={16} />
+                    </button>
+                  </div>
+                </div>
+
+              </div>
+            )}
+
+            {/* =========================================================
+                STEP 5: REVIEW & FINAL SUBMIT APPLICATION
+                ========================================================= */}
+            {uploadStep === 5 && (
+              <div className="doc-section-card">
+                
+                <div className="doc-section-header">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '1.2rem' }}>📋</span>
+                    <div>
+                      <h3 style={{ fontSize: '1.05rem', fontWeight: '700', color: 'var(--text)', margin: 0 }}>
+                        Review Your Document Application
+                      </h3>
+                      <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                        Verify the attached images and document particulars before submitting
+                      </span>
+                    </div>
+                  </div>
+                  <span className="badge badge-traveller">Final Step</span>
+                </div>
+
+                {/* Summary Grid of 4 Documents */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+                  
+                  {/* Passport Summary */}
+                  <div style={{ background: 'var(--surface-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                      <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--text)' }}>🛂 1. Passport</span>
+                      <button
+                        type="button"
+                        onClick={() => setUploadStep(1)}
+                        className="btn-subtle"
+                        style={{ padding: '2px 6px', fontSize: '0.72rem' }}>
+                        <Edit3 size={12} /> Edit
+                      </button>
+                    </div>
+                    {passportImg && (
+                      <img
+                        src={passportImg}
+                        alt="Passport thumbnail"
+                        style={{ width: '100%', height: '80px', objectFit: 'cover', borderRadius: '4px', marginBottom: '8px', border: '1px solid var(--border)' }}
+                      />
+                    )}
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      No: <strong style={{ color: 'var(--text)' }}>{passportNumber || '—'}</strong>
+                    </div>
+                    <div style={{ fontSize: '0.74rem', color: 'var(--text-dim)' }}>
+                      Name: {passportName || userName}
+                    </div>
+                  </div>
+
+                  {/* Visa Summary */}
+                  <div style={{ background: 'var(--surface-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                      <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--text)' }}>📄 2. Visa Document</span>
+                      <button
+                        type="button"
+                        onClick={() => setUploadStep(2)}
+                        className="btn-subtle"
+                        style={{ padding: '2px 6px', fontSize: '0.72rem' }}>
+                        <Edit3 size={12} /> Edit
+                      </button>
+                    </div>
+                    {visaImg && (
+                      <img
+                        src={visaImg}
+                        alt="Visa thumbnail"
+                        style={{ width: '100%', height: '80px', objectFit: 'cover', borderRadius: '4px', marginBottom: '8px', border: '1px solid var(--border)' }}
+                      />
+                    )}
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      No: <strong style={{ color: 'var(--text)' }}>{visaNumber || '—'}</strong>
+                    </div>
+                    <div style={{ fontSize: '0.74rem', color: 'var(--text-dim)' }}>
+                      Type: {visaType} ({visaEntryType})
+                    </div>
+                  </div>
+
+                  {/* National ID Summary */}
+                  <div style={{ background: 'var(--surface-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                      <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--text)' }}>🪪 3. Aadhaar Card</span>
+                      <button
+                        type="button"
+                        onClick={() => setUploadStep(3)}
+                        className="btn-subtle"
+                        style={{ padding: '2px 6px', fontSize: '0.72rem' }}>
+                        <Edit3 size={12} /> Edit
+                      </button>
+                    </div>
+                    {nationalIdImg && (
+                      <img
+                        src={nationalIdImg}
+                        alt="National ID thumbnail"
+                        style={{ width: '100%', height: '80px', objectFit: 'cover', borderRadius: '4px', marginBottom: '8px', border: '1px solid var(--border)' }}
+                      />
+                    )}
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      No: <strong style={{ color: 'var(--text)' }}>{nationalIdNumber || '—'}</strong>
+                    </div>
+                    <div style={{ fontSize: '0.74rem', color: 'var(--text-dim)' }}>
+                      Pincode: {nationalIdPincode || '—'}
+                    </div>
+                  </div>
+
+                  {/* Driving License Summary */}
+                  <div style={{ background: 'var(--surface-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                      <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--text)' }}>🚗 4. Driving License</span>
+                      <button
+                        type="button"
+                        onClick={() => setUploadStep(4)}
+                        className="btn-subtle"
+                        style={{ padding: '2px 6px', fontSize: '0.72rem' }}>
+                        <Edit3 size={12} /> Edit
+                      </button>
+                    </div>
+                    {dlImg ? (
+                      <img
+                        src={dlImg}
+                        alt="DL thumbnail"
+                        style={{ width: '100%', height: '80px', objectFit: 'cover', borderRadius: '4px', marginBottom: '8px', border: '1px solid var(--border)' }}
+                      />
+                    ) : (
+                      <div style={{ height: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', borderRadius: '4px', color: 'var(--text-dim)', fontSize: '0.76rem', marginBottom: '8px' }}>
+                        Skipped (Optional)
+                      </div>
+                    )}
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      No: <strong style={{ color: 'var(--text)' }}>{dlNumber || 'Not provided'}</strong>
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* Final Submit Buttons */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)', paddingTop: '18px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setUploadStep(4)}
+                    className="btn-secondary"
+                    style={{ padding: '10px 16px', gap: '6px' }}>
+                    <ArrowLeft size={16} />
+                    <span>Back</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isSubmitting}
+                    onClick={handleSubmitApplication}
+                    className="btn-primary"
+                    style={{ padding: '11px 28px', fontSize: '0.94rem', fontWeight: '700', gap: '8px' }}>
+                    {isSubmitting ? 'Submitting Application...' : 'Submit Application'}
+                    <CheckCircle2 size={18} />
+                  </button>
+                </div>
+
+              </div>
+            )}
+
+          </div>
+        )}
+
+        {/* =========================================================
+            PAGE 2: APPLICATION STATUS (NO HARDCODED/DEFAULT APPS)
+            ========================================================= */}
+        {activeTab === 'status' && (
+          <div>
+            
+            {/* Filters and Search */}
+            <div className="minimal-card" style={{ padding: '16px 20px', marginBottom: '18px' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+                
+                {/* Filter Pills */}
+                <div className="filter-pills-bar">
+                  <span style={{ fontSize: '0.78rem', fontWeight: '600', color: 'var(--text-dim)', marginRight: '4px' }}>
+                    Status Filter:
+                  </span>
+                  
+                  <button
+                    type="button"
+                    onClick={() => setStatusFilter('ALL')}
+                    className={`filter-pill ${statusFilter === 'ALL' ? 'active' : ''}`}>
+                    <span>All Applications</span>
+                    <span style={{ opacity: 0.7 }}>({applications.length})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setStatusFilter('UNDER_REVIEW')}
+                    className={`filter-pill ${statusFilter === 'UNDER_REVIEW' ? 'active-amber' : ''}`}>
+                    <Clock size={12} />
+                    <span>Currently Under Review</span>
+                    <span style={{ opacity: 0.8 }}>({underReviewCount})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setStatusFilter('PASSED')}
+                    className={`filter-pill ${statusFilter === 'PASSED' ? 'active-emerald' : ''}`}>
+                    <CheckCircle2 size={12} />
+                    <span>Passed / Verified</span>
+                    <span style={{ opacity: 0.8 }}>({passedCount})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setStatusFilter('REJECTED')}
+                    className={`filter-pill ${statusFilter === 'REJECTED' ? 'active-rose' : ''}`}>
+                    <XCircle size={12} />
+                    <span>Rejected</span>
+                    <span style={{ opacity: 0.8 }}>({applications.filter(a => a.status === 'REJECTED').length})</span>
+                  </button>
+                </div>
+
+                {/* Search Bar */}
+                <div style={{ position: 'relative', width: '220px' }}>
+                  <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-dim)' }} />
+                  <input
+                    type="text"
+                    placeholder="Search Application..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="input-field"
+                    style={{ paddingLeft: '32px', fontSize: '0.82rem', padding: '6px 10px 6px 32px' }}
+                  />
+                </div>
+
+              </div>
+            </div>
+
+            {/* Applications List */}
+            {filteredApps.length === 0 ? (
+              <div className="minimal-card" style={{ padding: '48px 24px', textAlign: 'center' }}>
+                <FileText size={36} style={{ color: 'var(--text-dim)', marginBottom: '12px' }} />
+                <h3 style={{ fontSize: '1.05rem', fontWeight: '600', color: 'var(--text)', marginBottom: '6px' }}>
+                  No Applications Found
+                </h3>
+                <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', marginBottom: '18px' }}>
+                  {searchQuery ? 'No applications match your search criteria.' : 'You have not submitted any document applications yet.'}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUploadStep(1);
+                    setActiveTab('upload');
+                  }}
+                  className="btn-primary"
+                  style={{ padding: '8px 16px', fontSize: '0.84rem' }}>
+                  <Upload size={15} />
+                  <span>Upload Documents</span>
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {filteredApps.map((app) => (
+                  <div key={app.id} className="minimal-card" style={{ padding: '20px 24px' }}>
+                    
+                    {/* Top Row: App ID, Date, Status Badge */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '12px', borderBottom: '1px solid var(--border)', paddingBottom: '12px', marginBottom: '16px' }}>
+                      
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.92rem', fontWeight: '700', color: 'var(--text)' }}>
+                            {app.id}
+                          </span>
+                          <span style={{ fontSize: '0.74rem', color: 'var(--text-dim)' }}>
+                            • Submitted on {new Date(app.created_at || Date.now()).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Clean Status Badge */}
+                      <div>
+                        {app.status === 'PASSED' && (
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            padding: '4px 10px',
+                            borderRadius: 'var(--radius-sm)',
+                            fontSize: '0.76rem',
+                            fontWeight: '700',
+                            background: 'var(--success-bg)',
+                            color: 'var(--success)',
+                            border: '1px solid var(--success-border)'
+                          }}>
+                            <CheckCircle2 size={13} /> Passed & Verified
+                          </span>
+                        )}
+
+                        {app.status === 'UNDER_REVIEW' && (
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            padding: '4px 10px',
+                            borderRadius: 'var(--radius-sm)',
+                            fontSize: '0.76rem',
+                            fontWeight: '700',
+                            background: 'var(--warning-bg)',
+                            color: 'var(--warning)',
+                            border: '1px solid var(--warning-border)'
+                          }}>
+                            <Clock size={13} /> Currently Under Review
+                          </span>
+                        )}
+
+                        {app.status === 'REJECTED' && (
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            padding: '4px 10px',
+                            borderRadius: 'var(--radius-sm)',
+                            fontSize: '0.76rem',
+                            fontWeight: '700',
+                            background: 'var(--danger-bg)',
+                            color: 'var(--danger)',
+                            border: '1px solid var(--danger-border)'
+                          }}>
+                            <XCircle size={13} /> Rejected
+                          </span>
+                        )}
+                      </div>
+
+                    </div>
+
+                    {/* Middle: Document Particulars & Thumbnails */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', marginBottom: '16px' }}>
+                      
+                      {/* Passport Summary */}
+                      <div style={{ background: 'var(--surface-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                          <span style={{ fontSize: '0.76rem', fontWeight: '700', color: 'var(--text)' }}>🛂 Passport</span>
+                          {app.passport_image && (
+                            <button
+                              type="button"
+                              onClick={() => setPreviewImageModal({ title: 'Passport Image', url: app.passport_image, docNo: app.passport_number })}
+                              className="btn-subtle"
+                              style={{ padding: '2px 6px', fontSize: '0.7rem' }}>
+                              <Eye size={12} /> View
+                            </button>
+                          )}
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                          No: <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>{app.passport_number || '—'}</strong>
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>
+                          Name: {app.passport_name || app.applicant_name}
+                        </div>
+                      </div>
+
+                      {/* Visa Summary */}
+                      <div style={{ background: 'var(--surface-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                          <span style={{ fontSize: '0.76rem', fontWeight: '700', color: 'var(--text)' }}>📄 Visa Document</span>
+                          {app.visa_image && (
+                            <button
+                              type="button"
+                              onClick={() => setPreviewImageModal({ title: 'Visa Document', url: app.visa_image, docNo: app.visa_number })}
+                              className="btn-subtle"
+                              style={{ padding: '2px 6px', fontSize: '0.7rem' }}>
+                              <Eye size={12} /> View
+                            </button>
+                          )}
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                          No: <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>{app.visa_number || '—'}</strong>
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>
+                          Type: {app.visa_type || 'Tourist'} ({app.visa_entry_type || 'Multiple'})
+                        </div>
+                      </div>
+
+                      {/* National ID Summary */}
+                      <div style={{ background: 'var(--surface-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                          <span style={{ fontSize: '0.76rem', fontWeight: '700', color: 'var(--text)' }}>🪪 Aadhaar / National ID</span>
+                          {app.national_id_image && (
+                            <button
+                              type="button"
+                              onClick={() => setPreviewImageModal({ title: 'Aadhaar / National ID', url: app.national_id_image, docNo: app.national_id_number })}
+                              className="btn-subtle"
+                              style={{ padding: '2px 6px', fontSize: '0.7rem' }}>
+                              <Eye size={12} /> View
+                            </button>
+                          )}
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                          No: <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>{app.national_id_number || '—'}</strong>
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>
+                          Address: {app.national_id_address ? `${app.national_id_address.slice(0, 30)}...` : 'Provided'}
+                        </div>
+                      </div>
+
+                      {/* Driving License Summary (if provided) */}
+                      {app.driving_license_number && (
+                        <div style={{ background: 'var(--surface-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                            <span style={{ fontSize: '0.76rem', fontWeight: '700', color: 'var(--text)' }}>🚗 Driving License</span>
+                            {app.driving_license_image && (
+                              <button
+                                type="button"
+                                onClick={() => setPreviewImageModal({ title: 'Driving License', url: app.driving_license_image, docNo: app.driving_license_number })}
+                                className="btn-subtle"
+                                style={{ padding: '2px 6px', fontSize: '0.7rem' }}>
+                                <Eye size={12} /> View
+                              </button>
+                            )}
+                          </div>
+                          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                            No: <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>{app.driving_license_number}</strong>
+                          </div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>
+                            Class: {app.driving_license_vehicle_class || 'LMV'} • Blood: {app.driving_license_blood_group || 'O+'}
+                          </div>
+                        </div>
+                      )}
+
+                    </div>
+
+                    {/* Bottom: Status Note & View Certificate Button */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '12px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      <div>
+                        {app.status_message || (app.status === 'PASSED' ? 'All compulsory documents verified and passed.' : 'Application is currently under verification.')}
+                      </div>
+
+                      {app.status === 'PASSED' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedCertAppId(app.id);
+                            setActiveTab('certificate');
+                          }}
+                          className="btn-primary"
+                          style={{ padding: '6px 14px', fontSize: '0.78rem' }}>
+                          <Award size={14} />
+                          <span>View Verification Certificate</span>
+                        </button>
+                      )}
+                    </div>
+
+                  </div>
+                ))}
+              </div>
+            )}
+
+          </div>
+        )}
+
+        {/* =========================================================
+            PAGE 3: VERIFICATION CERTIFICATE (CLEAN, NO WATERMARK OVERLAY)
+            ========================================================= */}
+        {activeTab === 'certificate' && (
+          <div>
+            
+            {/* Certificate Header Action Bar */}
+            <div className="minimal-card no-print" style={{ padding: '14px 20px', marginBottom: '18px' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+                
+                {/* Select Application if multiple */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <label className="input-label" style={{ margin: 0, fontSize: '0.78rem' }}>Select Application:</label>
+                  <select
+                    value={currentCertApp?.id || ''}
+                    onChange={(e) => setSelectedCertAppId(e.target.value)}
+                    className="input-field"
+                    style={{ width: 'auto', padding: '5px 10px', fontSize: '0.8rem' }}>
+                    {applications.map(app => (
+                      <option key={app.id} value={app.id}>
+                        {app.id} — Status: {app.status}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    className="btn-primary"
+                    style={{ padding: '7px 14px', fontSize: '0.8rem' }}>
+                    <Printer size={14} />
+                    <span>Download PDF / Print</span>
+                  </button>
+                </div>
+
+              </div>
+            </div>
+
+            {/* Verification Certificate */}
+            {!currentCertApp ? (
+              <div className="minimal-card" style={{ padding: '48px 24px', textAlign: 'center' }}>
+                <Award size={36} style={{ color: 'var(--text-dim)', marginBottom: '12px' }} />
+                <h3 style={{ fontSize: '1.05rem', fontWeight: '600', color: 'var(--text)', marginBottom: '6px' }}>
+                  No Verification Certificate Available
+                </h3>
+                <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', marginBottom: '18px' }}>
+                  Please submit your documents on Page 1 to receive your verification certificate.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUploadStep(1);
+                    setActiveTab('upload');
+                  }}
+                  className="btn-primary"
+                  style={{ padding: '8px 16px', fontSize: '0.84rem' }}>
+                  <Upload size={15} />
+                  <span>Upload Documents</span>
+                </button>
+              </div>
+            ) : (
+              <div className="gov-certificate-card">
+                
+                {/* Certificate Header */}
+                <div style={{ textAlign: 'center', borderBottom: '1.5px solid var(--border)', paddingBottom: '16px', marginBottom: '20px' }}>
+                  <div style={{ fontSize: '1rem', fontWeight: '800', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text)' }}>
+                    AuthentiQ
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '6px' }}>
+                    AI Based Fake Identity and Document Screening Portal
+                  </div>
+                  <h2 style={{ fontSize: '1.3rem', fontWeight: '800', color: 'var(--text)', margin: '6px 0 4px 0' }}>
+                    DIGITAL VERIFICATION CERTIFICATE
+                  </h2>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: 'var(--text-dim)' }}>
+                    Certificate ID: <strong style={{ color: 'var(--text)' }}>{currentCertApp.certificate_id || `AUTH-CERT-2026-${userId.slice(-6)}`}</strong>
+                  </div>
+                </div>
+
+                {/* Certificate Body */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '24px', alignItems: 'center', marginBottom: '22px' }}>
+                  
+                  {/* Left: Applicant and Verification Details */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.86rem' }}>
+                    
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', paddingBottom: '5px' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>Applicant Full Name:</span>
+                      <span style={{ fontWeight: '700', color: 'var(--text)' }}>{currentCertApp.applicant_name || userName}</span>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', paddingBottom: '5px' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>Assigned User ID:</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontWeight: '700', color: 'var(--text)' }}>{userId}</span>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', paddingBottom: '5px' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>Passport Number:</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontWeight: '600', color: 'var(--text)' }}>{currentCertApp.passport_number || 'VERIFIED'}</span>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', paddingBottom: '5px' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>National ID (Aadhaar):</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontWeight: '600', color: 'var(--text)' }}>{currentCertApp.national_id_number || 'VERIFIED'}</span>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', paddingBottom: '5px' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>Visa Number:</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontWeight: '600', color: 'var(--text)' }}>{currentCertApp.visa_number || 'VERIFIED'}</span>
+                    </div>
+
+                    {currentCertApp.driving_license_number && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', paddingBottom: '5px' }}>
+                        <span style={{ color: 'var(--text-muted)' }}>Driving License:</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: '600', color: 'var(--text)' }}>{currentCertApp.driving_license_number}</span>
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', paddingBottom: '5px' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>Verification Status:</span>
+                      <span style={{ fontWeight: '700', color: 'var(--success)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <CheckCircle2 size={13} /> PASSED & VERIFIED
+                      </span>
+                    </div>
+
+                    {/* Validity Period */}
+                    <div style={{
+                      background: 'var(--surface-subtle)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius-sm)',
+                      padding: '10px 12px',
+                      marginTop: '4px'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                        <span style={{ fontSize: '0.76rem', color: 'var(--text-dim)' }}>Date of Issue:</span>
+                        <span style={{ fontSize: '0.82rem', fontWeight: '700', color: 'var(--text)' }}>
+                          {currentCertApp.issue_date || '28 Aug 2026'}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: '0.76rem', color: 'var(--text-dim)' }}>Validity Date (1 Year):</span>
+                        <span style={{ fontSize: '0.82rem', fontWeight: '800', color: 'var(--success)' }}>
+                          {currentCertApp.valid_until || '27 Aug 2027'} (Active)
+                        </span>
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* Right: Camera & Google Lens Scannable QR Code (Zero Watermark / Zero Obstruction) */}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                    <ScannableQRCode payload={qrPayloadString} size={180} />
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '8px', fontWeight: '500', textAlign: 'center' }}>
+                      Scan with Google Lens or Camera Scanner
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* Certificate Footer */}
+                <div style={{
+                  borderTop: '1.5px solid var(--border)',
+                  paddingTop: '14px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  fontSize: '0.72rem',
+                  color: 'var(--text-dim)'
+                }}>
+                  <div>
+                    AuthentiQ Digital Screening Gateway • E-Gate Identity Verified
+                  </div>
+                  <div style={{ fontWeight: '600', color: 'var(--text)' }}>
+                    Digitally Sealed & Verified
+                  </div>
+                </div>
+
+              </div>
+            )}
+
+          </div>
+        )}
+
+        {/* =========================================================
+            USER ID SAFETY NOTICE POPUP MODAL (COMPACT)
+            ========================================================= */}
+        {showUserIdModal && (
           <div style={{
-            marginTop: '20px',
-            padding: '14px',
-            background: 'rgba(30, 41, 59, 0.5)',
-            borderRadius: '10px',
-            fontSize: '0.8rem',
-            color: '#94a3b8',
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.75)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 200,
             display: 'flex',
             alignItems: 'center',
-            gap: '10px'
-          }}>
-            <Fingerprint size={20} color="#34d399" />
-            <span>Show this pass at airport security e-gates equipped with AuthentiQ optical scanners.</span>
-          </div>
+            justifyContent: 'center',
+            padding: '16px'
+          }}
+          onClick={handleDismissUserIdModal}>
+            <div
+              className="minimal-card"
+              style={{
+                maxWidth: '370px',
+                width: '100%',
+                padding: '20px',
+                boxShadow: '0 16px 40px rgba(0,0,0,0.5)',
+                border: '1.5px solid var(--border-focus)'
+              }}
+              onClick={(e) => e.stopPropagation()}>
+              
+              {/* Modal Header */}
+              <div style={{ textAlign: 'center', marginBottom: '12px' }}>
+                <div style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '50%',
+                  background: 'var(--warning-bg)',
+                  border: '1px solid var(--warning-border)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: '8px',
+                  color: 'var(--warning)'
+                }}>
+                  <KeyRound size={18} />
+                </div>
 
-        </div>
+                <div style={{ fontSize: '0.68rem', fontWeight: '800', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--warning)' }}>
+                  Important Login Notice
+                </div>
+                <h3 style={{ fontSize: '1.05rem', fontWeight: '700', color: 'var(--text)', margin: '2px 0 4px 0' }}>
+                  Save Your Unique User ID
+                </h3>
+                <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)', lineHeight: '1.35', margin: 0 }}>
+                  Please save this User ID somewhere safe. You will need it to sign in to AuthentiQ in future sessions.
+                </p>
+              </div>
+
+              {/* User ID Highlight Card */}
+              <div style={{
+                background: 'var(--surface-subtle)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '10px 12px',
+                marginBottom: '12px',
+                textAlign: 'center'
+              }}>
+                <div style={{ fontSize: '0.65rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Assigned User ID
+                </div>
+                <div style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '1.18rem',
+                  fontWeight: '800',
+                  color: 'var(--text)',
+                  letterSpacing: '0.06em',
+                  margin: '2px 0 8px 0'
+                }}>
+                  {userId}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleCopyUserId}
+                  className="btn-secondary"
+                  style={{ width: '100%', padding: '6px 10px', fontSize: '0.76rem', gap: '6px' }}>
+                  {copiedUserId ? <Check size={13} style={{ color: 'var(--success)' }} /> : <Copy size={13} />}
+                  <span style={{ fontWeight: '600' }}>{copiedUserId ? 'Copied to Clipboard!' : 'Copy User ID'}</span>
+                </button>
+              </div>
+
+              {/* User Credentials Details */}
+              <div style={{
+                fontSize: '0.74rem',
+                color: 'var(--text-muted)',
+                background: 'var(--bg)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '8px 10px',
+                marginBottom: '14px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '3px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Account:</span>
+                  <strong style={{ color: 'var(--text)' }}>{userName}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Email:</span>
+                  <span style={{ color: 'var(--text)' }}>{userEmail}</span>
+                </div>
+              </div>
+
+              {/* Confirm / Continue Button */}
+              <button
+                type="button"
+                onClick={handleDismissUserIdModal}
+                className="btn-primary"
+                style={{ width: '100%', padding: '9px 16px', fontSize: '0.84rem', fontWeight: '600' }}>
+                I Have Saved My ID — Continue
+              </button>
+
+            </div>
+          </div>
+        )}
+
+        {/* =========================================================
+            IMAGE PREVIEW MODAL
+            ========================================================= */}
+        {previewImageModal && (
+          <div style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.8)',
+            zIndex: 100,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px'
+          }}
+          onClick={() => setPreviewImageModal(null)}>
+            <div
+              className="minimal-card"
+              style={{ maxWidth: '560px', width: '100%', padding: '20px' }}
+              onClick={(e) => e.stopPropagation()}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <h3 style={{ fontSize: '1rem', fontWeight: '700', margin: 0, color: 'var(--text)' }}>
+                  {previewImageModal.title} {previewImageModal.docNo ? `(${previewImageModal.docNo})` : ''}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setPreviewImageModal(null)}
+                  className="btn-subtle"
+                  style={{ padding: '4px 8px' }}>
+                  ✕ Close
+                </button>
+              </div>
+              <div style={{ textAlign: 'center', background: '#000', borderRadius: 'var(--radius-sm)', padding: '10px' }}>
+                <img
+                  src={previewImageModal.url}
+                  alt={previewImageModal.title}
+                  style={{ maxHeight: '360px', maxWidth: '100%', objectFit: 'contain' }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+          </div> {/* end right content panel */}
+        </div> {/* end sidebar + content flex row */}
 
       </div>
-
-      {/* Verification History Table */}
-      <div className="glass-panel" style={{ padding: '24px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <FileText size={20} color="#22d3ee" />
-            <h2 style={{ fontSize: '1.15rem', fontWeight: '700', color: '#f8fafc', margin: 0 }}>
-              Recent Screening Log History
-            </h2>
-          </div>
-          <span style={{ fontSize: '0.78rem', color: '#64748b' }}>Live Synchronized</span>
-        </div>
-
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.1)', textAlign: 'left', color: '#64748b' }}>
-                <th style={{ padding: '10px 12px' }}>Scan ID</th>
-                <th style={{ padding: '10px 12px' }}>Document</th>
-                <th style={{ padding: '10px 12px' }}>Number</th>
-                <th style={{ padding: '10px 12px' }}>Forgery Risk</th>
-                <th style={{ padding: '10px 12px' }}>AI Status</th>
-                <th style={{ padding: '10px 12px' }}>Time</th>
-              </tr>
-            </thead>
-            <tbody>
-              {scanHistory.map((item, idx) => (
-                <tr key={idx} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
-                  <td style={{ padding: '12px', fontFamily: 'var(--font-mono)', color: '#38bdf8' }}>{item.id}</td>
-                  <td style={{ padding: '12px', color: '#f8fafc' }}>{item.document_type}</td>
-                  <td style={{ padding: '12px', fontFamily: 'var(--font-mono)', color: '#94a3b8' }}>{item.document_number}</td>
-                  <td style={{ padding: '12px', color: item.tamper_score < 5 ? '#34d399' : '#fb7185', fontWeight: '600' }}>
-                    {item.tamper_score}%
-                  </td>
-                  <td style={{ padding: '12px' }}>
-                    <span className={item.ai_status === 'VERIFIED' ? 'badge-pill badge-emerald' : 'badge-pill badge-rose'}>
-                      {item.ai_status}
-                    </span>
-                  </td>
-                  <td style={{ padding: '12px', color: '#64748b', fontSize: '0.78rem' }}>{item.scanned_at}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
     </div>
   );
 }

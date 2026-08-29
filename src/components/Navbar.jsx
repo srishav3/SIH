@@ -70,9 +70,10 @@ export default function Navbar() {
           </button>
 
           {currentUser ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div 
-                onClick={() => navigate('/')}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+
+              <Link 
+                to="/account"
                 style={{ 
                   display: 'flex', 
                   alignItems: 'center', 
@@ -81,15 +82,17 @@ export default function Navbar() {
                   borderRadius: 'var(--radius-sm)', 
                   background: 'var(--surface-subtle)', 
                   border: '1px solid var(--border)',
-                  cursor: 'pointer'
+                  cursor: 'pointer',
+                  textDecoration: 'none',
+                  color: 'inherit'
                 }}>
                 <span style={{ fontSize: '0.84rem', fontWeight: '600', color: 'var(--text)' }}>
-                  {currentUser.first_name}
+                  {currentUser.first_name || 'User'}
                 </span>
                 <span className={`badge ${currentUser.role === 'officer' ? 'badge-officer' : 'badge-traveller'}`} style={{ padding: '2px 8px', fontSize: '0.7rem' }}>
                   {currentUser.role}
                 </span>
-              </div>
+              </Link>
 
               <button 
                 onClick={handleLogout} 

@@ -9,7 +9,12 @@ import {
   Shield, 
   AlertCircle, 
   RefreshCw,
-  Loader2
+  Loader2,
+  Copy,
+  Check,
+  CheckCircle2,
+  KeyRound,
+  ShieldCheck
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { checkEmailExists, saveUserProfile, checkUserIdExists } from '../lib/supabase';
@@ -44,6 +49,7 @@ export default function SignUpPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resendStatus, setResendStatus] = useState('');
   const [resendLoading, setResendLoading] = useState(false);
+  const [copiedId, setCopiedId] = useState(false);
 
   // Result state
   const [allocatedId, setAllocatedId] = useState('');
@@ -293,7 +299,7 @@ export default function SignUpPage() {
     }
   };
 
-  // Finalize: Store in Supabase, activate Clerk session, sync context, and navigate to Account view
+  // Finalize: Store in Supabase, activate Clerk session, sync context, and display User ID Copy Message Box
   const finalizeAccount = async (clerkUserId = null, sessionId = null) => {
     try {
       const finalUserId = allocatedId || (await generateUniqueUserId(role, checkUserIdExists));
@@ -329,9 +335,19 @@ export default function SignUpPage() {
       const rawUser = result.data || profileData;
       const { password_hash: _unusedHash, password: _unusedPwd, ...safeSavedUser } = rawUser;
       setCurrentUser(safeSavedUser);
+      setAllocatedId(finalUserId);
       
-      // 4. Navigate directly to user profile view
-      navigate('/', { replace: true });
+      // 4. Trigger celebration & present the mandatory User ID Copy Modal
+      try {
+        if (window.confetti) {
+          window.confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } });
+        }
+      } catch {
+        // Ignore
+      }
+      
+      setStep('complete');
+      setIsSubmitting(false);
     } catch (err) {
       console.error('Finalize account error:', err);
       setApiError('Account verified, but encountered an issue loading your profile. Please sign in with your credentials.');
@@ -692,6 +708,162 @@ export default function SignUpPage() {
               )}
             </button>
           </form>
+        )}
+
+        {/* STEP 4: SUCCESS - Dedicated User ID Safety Message Box */}
+        {step === 'complete' && (
+          <div>
+            {/* Celebration Icon Header */}
+            <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+              <div style={{
+                width: '60px',
+                height: '60px',
+                borderRadius: '50%',
+                background: 'var(--success-bg)',
+                border: '1px solid var(--success-border)',
+                color: 'var(--success)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginBottom: '12px'
+              }}>
+                <CheckCircle2 size={32} />
+              </div>
+              <h2 style={{ fontSize: '1.4rem', fontWeight: '700', color: 'var(--text)', margin: '0 0 4px 0' }}>
+                Account Successfully Created!
+              </h2>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                Welcome, <strong>{firstName} {lastName}</strong> ({role.toUpperCase()})
+              </p>
+            </div>
+
+            {/* MANDATORY WARNING / NOTICE BOX */}
+            <div style={{
+              background: 'rgba(234, 179, 8, 0.1)',
+              border: '1px solid rgba(234, 179, 8, 0.4)',
+              borderRadius: 'var(--radius-md)',
+              padding: '16px 18px',
+              marginBottom: '22px',
+              display: 'flex',
+              gap: '12px',
+              alignItems: 'flex-start'
+            }}>
+              <KeyRound size={22} style={{ color: '#eab308', flexShrink: 0, marginTop: '2px' }} />
+              <div>
+                <div style={{ fontSize: '0.9rem', fontWeight: '700', color: 'var(--text)', marginBottom: '4px' }}>
+                  Copy & Store This User ID Safely
+                </div>
+                <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: '1.45' }}>
+                  Please <strong style={{ color: 'var(--text)' }}>copy this User ID somewhere</strong>. You will need it in the future for logging into your account.
+                </div>
+              </div>
+            </div>
+
+            {/* USER ID DISPLAY CARD WITH 1-CLICK COPY */}
+            <div style={{
+              background: 'var(--surface-subtle)',
+              border: '2px solid var(--border)',
+              borderRadius: 'var(--radius-md)',
+              padding: '18px',
+              textAlign: 'center',
+              marginBottom: '20px',
+              position: 'relative'
+            }}>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: '600', marginBottom: '6px' }}>
+                YOUR OFFICIAL USER ID
+              </div>
+              <div style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: '1.75rem',
+                fontWeight: '800',
+                letterSpacing: '0.1em',
+                color: 'var(--text)',
+                marginBottom: '14px'
+              }}>
+                {allocatedId || 'TXXXXX1234'}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (allocatedId) {
+                    navigator.clipboard.writeText(allocatedId);
+                    setCopiedId(true);
+                    setTimeout(() => setCopiedId(false), 2500);
+                  }
+                }}
+                className={copiedId ? 'btn-primary' : 'btn-secondary'}
+                style={{
+                  width: '100%',
+                  padding: '10px 16px',
+                  fontWeight: '600',
+                  fontSize: '0.86rem',
+                  gap: '8px'
+                }}>
+                {copiedId ? (
+                  <>
+                    <Check size={16} />
+                    <span>User ID Copied to Clipboard!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy size={16} />
+                    <span>Copy User ID</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Registered Metadata Overview */}
+            <div style={{
+              background: 'var(--bg)',
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--radius-sm)',
+              padding: '12px 14px',
+              fontSize: '0.8rem',
+              color: 'var(--text-muted)',
+              marginBottom: '24px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>Registered Email:</span>
+                <span style={{ color: 'var(--text)', fontWeight: '500' }}>{email}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>Assigned Role:</span>
+                <span className={`badge ${role === 'officer' ? 'badge-officer' : 'badge-traveller'}`}>
+                  {role}
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>Status:</span>
+                <span style={{ color: 'var(--success)', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <ShieldCheck size={13} /> Active & Verified
+                </span>
+              </div>
+            </div>
+
+            {/* Proceed to Dashboard Button */}
+            <button
+              type="button"
+              onClick={() => {
+                sessionStorage.setItem('authentiq_just_signed_up', 'true');
+                navigate('/', { replace: true, state: { fromSignUp: true } });
+              }}
+              className="btn-primary"
+              style={{
+                width: '100%',
+                padding: '12px',
+                fontSize: '0.95rem',
+                fontWeight: '700',
+                gap: '8px'
+              }}>
+              <span>Proceed to {role === 'officer' ? 'Officer Dashboard' : 'Traveller Dashboard'}</span>
+              <ArrowRight size={18} />
+            </button>
+          </div>
         )}
 
       </div>

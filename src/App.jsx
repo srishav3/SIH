@@ -7,6 +7,8 @@ import Footer from './components/Footer';
 import LoginPage from './pages/LoginPage';
 import SignUpPage from './pages/SignUpPage';
 import AccountPage from './pages/AccountPage';
+import TravellerDashboard from './pages/TravellerDashboard';
+import OfficerDashboard from './pages/OfficerDashboard';
 
 function ProtectedRoute({ children }) {
   const { currentUser } = useAuth();
@@ -24,6 +26,17 @@ function PublicRoute({ children }) {
   return children;
 }
 
+function RoleBasedHome() {
+  const { currentUser } = useAuth();
+  if (!currentUser) {
+    return <Navigate to="/login" replace />;
+  }
+  if (currentUser.role === 'officer') {
+    return <OfficerDashboard />;
+  }
+  return <TravellerDashboard />;
+}
+
 export default function App() {
   return (
     <ThemeProvider>
@@ -37,7 +50,31 @@ export default function App() {
                   path="/" 
                   element={
                     <ProtectedRoute>
+                      <RoleBasedHome />
+                    </ProtectedRoute>
+                  } 
+                />
+                <Route 
+                  path="/account" 
+                  element={
+                    <ProtectedRoute>
                       <AccountPage />
+                    </ProtectedRoute>
+                  } 
+                />
+                <Route 
+                  path="/traveller-dashboard" 
+                  element={
+                    <ProtectedRoute>
+                      <TravellerDashboard />
+                    </ProtectedRoute>
+                  } 
+                />
+                <Route 
+                  path="/officer-dashboard" 
+                  element={
+                    <ProtectedRoute>
+                      <OfficerDashboard />
                     </ProtectedRoute>
                   } 
                 />
