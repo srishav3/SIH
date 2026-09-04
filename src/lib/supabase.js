@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { hashPassword } from './crypto';
+import { hashPassword, sha256 } from './crypto';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://dhohqdsbpnykicqsrgru.supabase.co';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_QG3SOQKSRKsKb2C8tUlVag_t6gRaHgS';
@@ -357,3 +357,100 @@ export async function saveDocumentApplication(appData) {
 export async function recordDocumentScan(scanData) {
   return saveDocumentApplication(scanData);
 }
+
+/**
+ * Maps a raw Supabase/Postgres duplicate-key error to a clear UI message.
+ * @param {string} msg
+ * @returns {string}
+ */
+function parseSaveError(msg) {
+  if (!msg) return 'A database error occurred. Please try again.';
+  const m = msg.toLowerCase();
+  if (m.includes('passport_no'))     return 'A traveller with this Passport Number is already registered.';
+  if (m.includes('visa_no'))         return 'A traveller with this Visa Number is already registered.';
+  if (m.includes('aadhaar_no'))      return 'A traveller with this Aadhaar Number is already registered.';
+  if (m.includes('identity_hash'))   return 'A traveller with identical identity details already exists in the system.';
+  if (m.includes('duplicate key') || m.includes('unique constraint'))
+    return 'One or more document numbers are already registered. Please verify Passport, Visa and Aadhaar details.';
+  return 'Registration failed. Please check the entered details and try again.';
+}
+
+/**
+ * Saves a new traveller identity record created by an officer.
+ *
+ * SHA-256 hash is computed from exactly the values stored in the DB,
+ * using the same capitalisation / format:
+ *   fullName (Title Case) | passportNo (UPPER) | visaNo (UPPER)
+ *   | aadhaarNo (digits only) | dob (yyyy-mm-dd)
+ *   | gender (Title Case) | nationality (Title Case)
+ *
+ * NOT included in hash: officer user_id, created_at, updated_at.
+ *
+ * @param {Object} identityData - Pre-sanitized fields from Create User form
+ * @param {string} officerUserId - Logged-in officer's user_id (stored in DB only, not hashed)
+ * @returns {Promise<{ success: boolean, data: Object | null, error: string | null }>}
+ */
+export async function saveTravellerIdentity(identityData, officerUserId) {
+  const { fullName, passportNo, visaNo, aadhaarNo, dob, gender, nationality } = identityData;
+
+  // Normalise to exact DB-stored format
+  const storedName        = String(fullName).trim();            // Title Case  – enforced by form
+  const storedPassport    = String(passportNo).trim().toUpperCase();
+  const storedVisa        = String(visaNo).trim().toUpperCase();
+  const storedAadhaar     = String(aadhaarNo).trim();           // digits only – enforced by form
+  const storedDob         = String(dob).trim();                 // yyyy-mm-dd  – from <input type="date">
+  const storedGender      = String(gender).trim();              // Male / Female / Other
+  const storedNationality = String(nationality).trim();         // Title Case  – enforced by form
+
+  // SHA-256: pipe-delimited, same format as what is stored in DB columns
+  const hashInput = [
+    storedName,
+    storedPassport,
+    storedVisa,
+    storedAadhaar,
+    storedDob,
+    storedGender,
+    storedNationality,
+  ].join('|');
+
+  const identityHash = await sha256(hashInput);
+
+  const record = {
+    full_name:          storedName,
+    dob:                storedDob,
+    gender:             storedGender,
+    nationality:        storedNationality,
+    passport_no:        storedPassport,
+    visa_no:            storedVisa,
+    aadhaar_no:         storedAadhaar,
+    identity_hash:      identityHash,
+    created_by_officer: officerUserId || null,
+    // created_at / updated_at — handled by DB DEFAULT now()
+  };
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('traveller_identities')
+        .insert([record])
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Supabase traveller_identities insert error:', error);
+        return { success: false, data: null, error: parseSaveError(error.message) };
+      }
+
+      console.log('Traveller identity saved. Hash:', identityHash);
+      return { success: true, data: { ...data, identity_hash: identityHash }, error: null };
+    } catch (err) {
+      console.error('Supabase exception:', err);
+      return { success: false, data: null, error: parseSaveError(err.message) };
+    }
+  }
+
+  // Offline fallback
+  return { success: true, data: { ...record }, error: null };
+}
+
+

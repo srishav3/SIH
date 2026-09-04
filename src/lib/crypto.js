@@ -91,6 +91,19 @@ export async function hashPassword(password) {
 }
 
 /**
+ * Computes a raw SHA-256 hash of any string input.
+ * @param {string} input - Plain text to hash
+ * @returns {Promise<string>} Lowercase hex-encoded SHA-256 digest
+ */
+export async function sha256(input) {
+  const cryptoApi = getCrypto();
+  const encoder = new TextEncoder();
+  const data = encoder.encode(String(input));
+  const hashBuffer = await cryptoApi.subtle.digest('SHA-256', data);
+  return bufferToHex(new Uint8Array(hashBuffer));
+}
+
+/**
  * Verifies a candidate plain text password against a stored hash or legacy record.
  * @param {string} password - Candidate plain text password
  * @param {string} storedHash - Stored hash from database
