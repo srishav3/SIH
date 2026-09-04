@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { 
   Upload, 
@@ -15,7 +15,6 @@ import {
   Trash2, 
   ShieldCheck, 
   AlertCircle, 
-  Sparkles, 
   ArrowRight, 
   ArrowLeft, 
   Edit3, 
@@ -101,8 +100,8 @@ export default function TravellerDashboard() {
   // Active Main Tab: 'upload' | 'status' | 'certificate'
   const [activeTab, setActiveTab] = useState('upload');
 
-  // Page 1 Wizard Step: 1 = Passport, 2 = Visa, 3 = National ID, 4 = DL, 5 = Review & Submit
-  const [uploadStep, setUploadStep] = useState(1);
+  // Page 1 Wizard Step: 0 = Intro, 1 = Passport, 2 = Visa, 3 = National ID, 4 = DL, 5 = Review & Submit
+  const [uploadStep, setUploadStep] = useState(0);
 
   // Applications list
   const [applications, setApplications] = useState([]);
@@ -333,60 +332,7 @@ export default function TravellerDashboard() {
     }
   };
 
-  // 1-Click Demo Sample Autofill
-  const handleLoadSampleDocuments = () => {
-    const defaultName = userName !== 'Traveller' ? userName : 'Rahul Sharma';
 
-    // 1. Passport
-    setPassportImg('https://images.unsplash.com/photo-1544717305-2782549b5136?w=600&auto=format&fit=crop&q=80');
-    setPassportFileName('sample_indian_passport.jpg');
-    setPassportName(defaultName);
-    setPassportNumber('Z9824102');
-    setPassportNationality('Indian (IND)');
-    setPassportDob('1996-05-14');
-    setPassportDoi('2021-08-10');
-    setPassportDoe('2031-08-09');
-    setPassportGender('Male');
-    setPassportPlaceOfIssue('Regional Passport Office, Delhi');
-
-    // 2. Visa
-    setVisaImg('https://images.unsplash.com/photo-1589829545856-d10d557cf95f?w=600&auto=format&fit=crop&q=80');
-    setVisaFileName('sample_visa_doc.jpg');
-    setVisaName(defaultName);
-    setVisaNumber('VISA-IND-904128');
-    setVisaType('Tourist / Transit');
-    setVisaEntryType('Multiple Entry');
-    setVisaNationality('Indian (IND)');
-    setVisaDob('1996-05-14');
-    setVisaDoi('2026-01-15');
-    setVisaDoe('2027-01-14');
-    setVisaGender('Male');
-
-    // 3. National ID (Aadhaar)
-    setNationalIdImg('https://images.unsplash.com/photo-1557804506-669a67965ba0?w=600&auto=format&fit=crop&q=80');
-    setNationalIdFileName('sample_aadhaar_card.jpg');
-    setNationalIdName(defaultName);
-    setNationalIdNumber('5489 9021 3418');
-    setNationalIdDob('1996-05-14');
-    setNationalIdGender('Male');
-    setNationalIdGuardian('Suresh Sharma (Father)');
-    setNationalIdAddress('Flat 402, Green Valley Apartments, Sector 62, Noida, Uttar Pradesh');
-    setNationalIdPincode('201301');
-
-    // 4. Driving License
-    setDlImg('https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=600&auto=format&fit=crop&q=80');
-    setDlFileName('sample_driving_license.jpg');
-    setDlName(defaultName);
-    setDlNumber('DL-1420110012345');
-    setDlDob('1996-05-14');
-    setDlBloodGroup('O+');
-    setDlVehicleClass('LMV, MCWG');
-    setDlDoi('2018-03-20');
-    setDlDoe('2038-03-19');
-    setDlRto('DL-14 Janakpuri RTO, New Delhi');
-
-    setStepError('');
-  };
 
   // Step Validation & Forward Navigation
   const handleNextFromPassport = (e) => {
@@ -609,136 +555,129 @@ Authority: AuthentiQ Screening Portal`;
   const underReviewCount = applications.filter(a => a.status === 'UNDER_REVIEW').length;
 
   return (
-    <div style={{ minHeight: 'calc(100vh - 120px)', paddingBottom: '48px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: 'calc(100vh - 72px)', background: 'var(--bg)' }}>
       
-      {/* Tricolor National Header Strip */}
-      <div className="gov-header-strip"></div>
-
-      <div className="container" style={{ paddingTop: '20px' }}>
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         
         {/* =========================================================
-            HEADER & PORTAL BRANDING BANNER
+            LEFT SIDEBAR (FULL HEIGHT, PREMIUM DESIGN)
             ========================================================= */}
-        <div className="minimal-card" style={{ padding: '20px 24px', marginBottom: '20px' }}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
-            
-            {/* Title */}
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
-                <span style={{ fontSize: '0.74rem', fontWeight: '800', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text)' }}>
+        <aside style={{
+          width: '280px',
+          background: 'var(--surface)',
+          borderRight: '1px solid var(--border)',
+          display: 'flex',
+          flexDirection: 'column',
+          padding: '24px 16px',
+          flexShrink: 0,
+          boxShadow: '4px 0 24px rgba(0,0,0,0.02)'
+        }}>
+          
+          <div style={{ marginBottom: '40px', padding: '0 8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+              <div style={{
+                width: '32px', height: '32px',
+                background: 'linear-gradient(135deg, var(--primary), var(--primary-fixed-dim))',
+                borderRadius: '8px',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: '#fff', fontWeight: '800', fontSize: '1rem',
+                boxShadow: '0 4px 12px rgba(0,0,128,0.2)'
+              }}>Q</div>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: '800', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text)', lineHeight: 1.2 }}>
                   AuthentiQ
                 </span>
-                <span className="badge badge-traveller" style={{ fontSize: '0.68rem' }}>
+                <span style={{ fontSize: '0.65rem', color: 'var(--primary)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                   Traveller Portal
                 </span>
               </div>
-              <h1 style={{ fontSize: '1.35rem', fontWeight: '700', color: 'var(--text)', margin: 0, letterSpacing: '-0.01em' }}>
-                AI Based Fake Identity and Document Screening Portal
-              </h1>
             </div>
-
-            {/* User ID Card */}
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-              background: 'var(--surface-subtle)',
-              border: '1px solid var(--border)',
-              padding: '6px 12px',
-              borderRadius: 'var(--radius-sm)'
-            }}>
-              <div>
-                <div style={{ fontSize: '0.66rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  Assigned User ID
-                </div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', fontWeight: '700', color: 'var(--text)' }}>
-                  {userId}
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: '4px' }}>
-                <button
-                  type="button"
-                  onClick={handleCopyUserId}
-                  className="btn-subtle"
-                  style={{ padding: '4px 8px', fontSize: '0.72rem' }}
-                  title="Copy User ID">
-                  {copiedUserId ? <Check size={13} style={{ color: 'var(--success)' }} /> : <Copy size={13} />}
-                  <span>{copiedUserId ? 'Copied' : 'Copy'}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setShowUserIdModal(true)}
-                  className="btn-subtle"
-                  style={{ padding: '4px 6px', fontSize: '0.72rem' }}
-                  title="View User ID Safety Instructions">
-                  <Info size={13} />
-                </button>
-              </div>
-            </div>
-
           </div>
-        </div>
 
-        {/* =========================================================
-            SIDEBAR + CONTENT LAYOUT
-            ========================================================= */}
-        <div className="dashboard-layout" style={{ display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
-
-          {/* LEFT SIDEBAR NAV */}
-          <div className="dashboard-sidebar" style={{
-            width: '220px',
-            flexShrink: 0,
-            background: 'var(--surface)',
-            border: '1px solid var(--border)',
-            borderRadius: 'var(--radius-md)',
-            padding: '8px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '4px',
-            position: 'sticky',
-            top: '84px'
-          }}>
-            {/* Tab 1: Upload Documents */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1 }}>
+            <div style={{ fontSize: '0.65rem', fontWeight: '700', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: '8px', paddingLeft: '8px' }}>
+              Navigation
+            </div>
+            
             <button
               type="button"
               className={`portal-tab-btn ${activeTab === 'upload' ? 'active' : ''}`}
-              onClick={() => setActiveTab('upload')}
-              style={{ width: '100%', justifyContent: 'flex-start', textAlign: 'left' }}>
-              <Upload size={15} />
-              <span>1. Upload Documents</span>
+              onClick={() => { setActiveTab('upload'); setUploadStep(0); }}
+              style={{ width: '100%', justifyContent: 'flex-start', textAlign: 'left', padding: '12px 14px', borderRadius: '8px', fontSize: '0.85rem', fontWeight: activeTab === 'upload' ? '600' : '500' }}>
+              <Upload size={18} strokeWidth={activeTab === 'upload' ? 2.5 : 2} />
+              <span>New Application</span>
             </button>
 
-            {/* Tab 2: Application Status */}
             <button
               type="button"
               className={`portal-tab-btn ${activeTab === 'status' ? 'active' : ''}`}
               onClick={() => setActiveTab('status')}
-              style={{ width: '100%', justifyContent: 'flex-start', textAlign: 'left' }}>
-              <FileText size={15} />
-              <span>2. Application Status</span>
-              <span className="tab-badge" style={{ marginLeft: 'auto' }}>{applications.length}</span>
+              style={{ width: '100%', justifyContent: 'flex-start', textAlign: 'left', padding: '12px 14px', borderRadius: '8px', fontSize: '0.85rem', fontWeight: activeTab === 'status' ? '600' : '500' }}>
+              <FileText size={18} strokeWidth={activeTab === 'status' ? 2.5 : 2} />
+              <span>Applications</span>
+              <span className="tab-badge" style={{ marginLeft: 'auto', background: activeTab === 'status' ? 'var(--primary)' : 'var(--surface-container)', color: activeTab === 'status' ? '#fff' : 'var(--text)' }}>
+                {applications.length}
+              </span>
             </button>
 
-            {/* Tab 3: Verification Certificate */}
             <button
               type="button"
               className={`portal-tab-btn ${activeTab === 'certificate' ? 'active' : ''}`}
               onClick={() => setActiveTab('certificate')}
-              style={{ width: '100%', justifyContent: 'flex-start', textAlign: 'left' }}>
-              <Award size={15} />
-              <span>3. Verification Certificate</span>
+              style={{ width: '100%', justifyContent: 'flex-start', textAlign: 'left', padding: '12px 14px', borderRadius: '8px', fontSize: '0.85rem', fontWeight: activeTab === 'certificate' ? '600' : '500' }}>
+              <Award size={18} strokeWidth={activeTab === 'certificate' ? 2.5 : 2} />
+              <span>Certificates</span>
               {passedCount > 0 && (
-                <span className="tab-badge" style={{ marginLeft: 'auto', background: 'var(--success-bg)', color: 'var(--success)', borderColor: 'var(--success-border)' }}>
-                  {passedCount} Ready
+                <span className="tab-badge" style={{
+                  marginLeft: 'auto',
+                  background: activeTab === 'certificate' ? 'var(--primary)' : 'var(--success-bg)',
+                  color: activeTab === 'certificate' ? '#fff' : 'var(--success)'
+                }}>
+                  {passedCount}
                 </span>
               )}
             </button>
           </div>
 
-          {/* RIGHT CONTENT PANEL */}
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ marginTop: 'auto', padding: '16px', background: 'var(--surface-low)', borderRadius: '12px', border: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+              <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'var(--primary-fixed)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)', fontWeight: 'bold' }}>
+                {userName.charAt(0).toUpperCase()}
+              </div>
+              <div style={{ overflow: 'hidden' }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{userName}</div>
+                <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{userEmail}</div>
+              </div>
+            </div>
+            
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px dashed var(--border)', paddingTop: '10px', marginTop: '4px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontSize: '0.6rem', textTransform: 'uppercase', color: 'var(--text-dim)', letterSpacing: '0.04em', fontWeight: '700' }}>User ID</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', fontWeight: '700', color: 'var(--text)' }}>{userId.slice(0, 12)}...</span>
+              </div>
+              <button onClick={handleCopyUserId} className="btn-subtle" style={{ padding: '4px 6px' }} title="Copy ID">
+                {copiedUserId ? <Check size={14} color="var(--success)" /> : <Copy size={14} />}
+              </button>
+            </div>
+          </div>
+        </aside>
+
+        {/* =========================================================
+            MAIN CONTENT AREA (FULL BLEED, DYNAMIC WIDTH)
+            ========================================================= */}
+        <main style={{ flex: 1, padding: '40px 56px', overflowY: 'auto', background: 'var(--bg)' }}>
+          
+          <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            
+            {/* Top Page Header */}
+            <div style={{ marginBottom: '8px' }}>
+              <h1 style={{ fontSize: '1.45rem', fontWeight: '800', color: 'var(--text)', margin: 0, letterSpacing: '-0.02em' }}>
+                Identity & Document Verification Portal
+              </h1>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                Complete your profile and manage your verification status.
+              </p>
+            </div>
         {/* =========================================================
             PAGE 1: STEP-BY-STEP UPLOAD WIZARD
             ========================================================= */}
@@ -784,43 +723,70 @@ Authority: AuthentiQ Screening Portal`;
               </div>
             )}
 
-            {/* Wizard Step Progress Indicator */}
+            {/* =========================================================
+                STEP 0: INTRO / NEW APPLICATION
+                ========================================================= */}
+            {uploadStep === 0 && (
+              <div className="doc-section-card fade-in" style={{ textAlign: 'center', padding: '60px 40px', marginTop: '20px' }}>
+                <div style={{ width: '64px', height: '64px', background: 'var(--primary-fixed)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px auto', color: 'var(--primary)' }}>
+                  <ShieldCheck size={32} />
+                </div>
+                <h2 style={{ fontSize: '1.4rem', fontWeight: '800', color: 'var(--text)', marginBottom: '12px' }}>
+                  Border Crossing Document Verification
+                </h2>
+                <p style={{ fontSize: '0.95rem', color: 'var(--text-muted)', maxWidth: '500px', margin: '0 auto 30px auto', lineHeight: '1.6' }}>
+                  Do you want to verify your identity and travel documents for crossing the border? This will start a new secure application process.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setUploadStep(1)}
+                  className="btn-primary"
+                  style={{ padding: '12px 32px', fontSize: '0.95rem', gap: '8px' }}>
+                  <span>Yes, Start New Application</span>
+                  <ArrowRight size={18} />
+                </button>
+              </div>
+            )}
+
+            {uploadStep >= 1 && (
+              <>
+                {/* Wizard Step Progress Indicator */}
             <div className="wizard-progress-bar">
               <div
                 className={`wizard-step-node ${uploadStep === 1 ? 'active' : uploadStep > 1 ? 'completed' : ''}`}
                 onClick={() => setUploadStep(1)}>
-                <span className="wizard-step-num">{uploadStep > 1 ? 'âœ“' : '1'}</span>
+                <span className="wizard-step-num">{uploadStep > 1 ? '✓' : '1'}</span>
                 <span>1. Passport</span>
               </div>
 
-              <span className="wizard-arrow">â†’</span>
+              <span className="wizard-arrow">→</span>
 
               <div
                 className={`wizard-step-node ${uploadStep === 2 ? 'active' : uploadStep > 2 ? 'completed' : ''}`}
                 onClick={() => { if (passportImg && passportNumber) setUploadStep(2); }}>
-                <span className="wizard-step-num">{uploadStep > 2 ? 'âœ“' : '2'}</span>
+                <span className="wizard-step-num">{uploadStep > 2 ? '✓' : '2'}</span>
                 <span>2. Visa Document</span>
               </div>
 
-              <span className="wizard-arrow">â†’</span>
+              <span className="wizard-arrow">→</span>
 
               <div
                 className={`wizard-step-node ${uploadStep === 3 ? 'active' : uploadStep > 3 ? 'completed' : ''}`}
                 onClick={() => { if (visaImg && visaNumber) setUploadStep(3); }}>
-                <span className="wizard-step-num">{uploadStep > 3 ? 'âœ“' : '3'}</span>
+                <span className="wizard-step-num">{uploadStep > 3 ? '✓' : '3'}</span>
                 <span>3. National ID (Aadhaar)</span>
               </div>
 
-              <span className="wizard-arrow">â†’</span>
+              <span className="wizard-arrow">→</span>
 
               <div
                 className={`wizard-step-node ${uploadStep === 4 ? 'active' : uploadStep > 4 ? 'completed' : ''}`}
                 onClick={() => { if (nationalIdImg && nationalIdNumber) setUploadStep(4); }}>
-                <span className="wizard-step-num">{uploadStep > 4 ? 'âœ“' : '4'}</span>
+                <span className="wizard-step-num">{uploadStep > 4 ? '✓' : '4'}</span>
                 <span>4. Driving License</span>
               </div>
 
-              <span className="wizard-arrow">â†’</span>
+              <span className="wizard-arrow">→</span>
 
               <div
                 className={`wizard-step-node ${uploadStep === 5 ? 'active' : ''}`}
@@ -830,37 +796,34 @@ Authority: AuthentiQ Screening Portal`;
               </div>
             </div>
 
-            {/* Quick Demo Autofill Button */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
-              <button
-                type="button"
-                onClick={handleLoadSampleDocuments}
-                className="btn-secondary"
-                style={{ fontSize: '0.76rem', padding: '6px 12px', gap: '6px' }}>
-                <Sparkles size={14} />
-                <span>Fill Sample Details (Demo)</span>
-              </button>
-            </div>
+
 
             {/* =========================================================
                 STEP 1: PASSPORT BLOCK (COMPULSORY)
                 ========================================================= */}
             {uploadStep === 1 && (
-              <div className="doc-section-card">
+              <div className="doc-section-card fade-in">
                 
                 <div className="doc-section-header">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ fontSize: '1.2rem' }}>ðŸ›‚</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{
+                      width: '40px', height: '40px',
+                      background: 'var(--primary-fixed)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius-md)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: '1.3rem', flexShrink: 0
+                    }}>🛂</div>
                     <div>
-                      <h3 style={{ fontSize: '1.05rem', fontWeight: '700', color: 'var(--text)', margin: 0 }}>
-                        Step 1 of 4: Passport Information
+                      <h3 style={{ fontSize: '1rem', fontWeight: '700', color: 'var(--primary)', margin: 0 }}>
+                        Step 1 of 4 — Passport Information
                       </h3>
-                      <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                        Upload your Passport photo copy and fill details below
+                      <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                        Upload your Passport photo page and fill details below
                       </span>
                     </div>
                   </div>
-                  <span className="badge badge-compulsory">Compulsory *</span>
+                  <span className="badge badge-compulsory">Required</span>
                 </div>
 
                 {/* Passport Image Upload Box */}
@@ -906,15 +869,15 @@ Authority: AuthentiQ Screening Portal`;
                           {passportFileName}
                         </div>
                         {passportReady
-                          ? <span style={{ fontSize: '0.72rem', color: 'var(--success)', fontWeight: '600' }}>âœ“ Verified &amp; Data Extracted (Click to change)</span>
-                          : <span style={{ fontSize: '0.72rem', color: 'var(--warning, #f59e0b)', fontWeight: '600' }}>â³ {passportFileName}...</span>
+                          ? <span style={{ fontSize: '0.72rem', color: 'var(--success)', fontWeight: '600' }}>✓ Verified & Data Extracted (Click to change)</span>
+                          : <span style={{ fontSize: '0.72rem', color: 'var(--warning, #f59e0b)', fontWeight: '600' }}>⏳ {passportFileName}...</span>
                         }
                       </div>
                     </div>
                   ) : (
                     <div>
                       {passportVerifying ? (
-                        <div style={{ color: 'var(--text-dim)', marginBottom: '6px' }}>â³ {passportFileName}</div>
+                        <div style={{ color: 'var(--text-dim)', marginBottom: '6px' }}>⏳ {passportFileName}</div>
                       ) : (
                         <Upload size={22} style={{ color: 'var(--text-dim)', margin: '0 auto 6px auto' }} />
                       )}
@@ -936,11 +899,11 @@ Authority: AuthentiQ Screening Portal`;
                   </div>
                 )}
 
-                {/* Passport Text Boxes Grid â€” locked until OCR done */}
+                {/* Passport Text Boxes Grid — locked until OCR done */}
                 <div style={{ opacity: passportReady ? 1 : 0.45, pointerEvents: passportReady ? 'auto' : 'none', transition: 'opacity 0.3s' }}>
                   {!passportReady && (
                     <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span>ðŸ”’</span>
+                      <span>🔒</span>
                       <span>{passportVerifying ? 'AI is verifying and extracting data from your document...' : 'Upload and verify your document above to unlock these fields.'}</span>
                     </div>
                   )}
@@ -1057,21 +1020,28 @@ Authority: AuthentiQ Screening Portal`;
                 STEP 2: VISA BLOCK (COMPULSORY)
                 ========================================================= */}
             {uploadStep === 2 && (
-              <div className="doc-section-card">
+              <div className="doc-section-card fade-in">
                 
                 <div className="doc-section-header">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ fontSize: '1.2rem' }}>ðŸ“„</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{
+                      width: '40px', height: '40px',
+                      background: 'var(--primary-fixed)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius-md)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: '1.3rem', flexShrink: 0
+                    }}>📄</div>
                     <div>
-                      <h3 style={{ fontSize: '1.05rem', fontWeight: '700', color: 'var(--text)', margin: 0 }}>
-                        Step 2 of 4: Visa Document Information
+                      <h3 style={{ fontSize: '1rem', fontWeight: '700', color: 'var(--primary)', margin: 0 }}>
+                        Step 2 of 4 — Visa Document Information
                       </h3>
-                      <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                      <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
                         Upload your Visa permit copy and fill details below
                       </span>
                     </div>
                   </div>
-                  <span className="badge badge-compulsory">Compulsory *</span>
+                  <span className="badge badge-compulsory">Required</span>
                 </div>
 
                 {/* Visa Image Upload Box */}
@@ -1110,15 +1080,15 @@ Authority: AuthentiQ Screening Portal`;
                       <div style={{ textAlign: 'left' }}>
                         <div style={{ fontSize: '0.84rem', fontWeight: '600', color: 'var(--text)' }}>{visaFileName}</div>
                         {visaReady
-                          ? <span style={{ fontSize: '0.72rem', color: 'var(--success)', fontWeight: '600' }}>âœ“ Verified &amp; Data Extracted (Click to change)</span>
-                          : <span style={{ fontSize: '0.72rem', color: 'var(--warning, #f59e0b)', fontWeight: '600' }}>â³ {visaFileName}...</span>
+                          ? <span style={{ fontSize: '0.72rem', color: 'var(--success)', fontWeight: '600' }}>✓ Verified & Data Extracted (Click to change)</span>
+                          : <span style={{ fontSize: '0.72rem', color: 'var(--warning, #f59e0b)', fontWeight: '600' }}>⏳ {visaFileName}...</span>
                         }
                       </div>
                     </div>
                   ) : (
                     <div>
                       {visaVerifying
-                        ? <div style={{ color: 'var(--text-dim)', marginBottom: '6px' }}>â³ {visaFileName}</div>
+                        ? <div style={{ color: 'var(--text-dim)', marginBottom: '6px' }}>⏳ {visaFileName}</div>
                         : <Upload size={22} style={{ color: 'var(--text-dim)', margin: '0 auto 6px auto' }} />
                       }
                       <div style={{ fontSize: '0.84rem', fontWeight: '600', color: 'var(--text)' }}>Click to Upload Visa Document / Permit Copy</div>
@@ -1135,11 +1105,11 @@ Authority: AuthentiQ Screening Portal`;
                   </div>
                 )}
 
-                {/* Visa Fields â€” locked until OCR done */}
+                {/* Visa Fields — locked until OCR done */}
                 <div style={{ opacity: visaReady ? 1 : 0.45, pointerEvents: visaReady ? 'auto' : 'none', transition: 'opacity 0.3s' }}>
                   {!visaReady && (
                     <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span>ðŸ”’</span>
+                      <span>🔒</span>
                       <span>{visaVerifying ? 'AI is verifying and extracting data from your document...' : 'Upload and verify your document above to unlock these fields.'}</span>
                     </div>
                   )}
@@ -1229,21 +1199,28 @@ Authority: AuthentiQ Screening Portal`;
                 STEP 3: NATIONAL ID / AADHAAR BLOCK (COMPULSORY)
                 ========================================================= */}
             {uploadStep === 3 && (
-              <div className="doc-section-card">
+              <div className="doc-section-card fade-in">
                 
                 <div className="doc-section-header">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ fontSize: '1.2rem' }}>ðŸªª</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{
+                      width: '40px', height: '40px',
+                      background: 'var(--primary-fixed)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius-md)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: '1.3rem', flexShrink: 0
+                    }}>🪪</div>
                     <div>
-                      <h3 style={{ fontSize: '1.05rem', fontWeight: '700', color: 'var(--text)', margin: 0 }}>
-                        Step 3 of 4: National ID (Indian Aadhaar Card)
+                      <h3 style={{ fontSize: '1rem', fontWeight: '700', color: 'var(--primary)', margin: 0 }}>
+                        Step 3 of 4 — National ID (Aadhaar Card)
                       </h3>
-                      <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                      <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
                         Upload your Aadhaar card and fill resident details below
                       </span>
                     </div>
                   </div>
-                  <span className="badge badge-compulsory">Compulsory *</span>
+                  <span className="badge badge-compulsory">Required</span>
                 </div>
 
                 {/* Aadhaar Image Upload Box */}
@@ -1282,15 +1259,15 @@ Authority: AuthentiQ Screening Portal`;
                       <div style={{ textAlign: 'left' }}>
                         <div style={{ fontSize: '0.84rem', fontWeight: '600', color: 'var(--text)' }}>{nationalIdFileName}</div>
                         {nationalIdReady
-                          ? <span style={{ fontSize: '0.72rem', color: 'var(--success)', fontWeight: '600' }}>âœ“ Verified &amp; Data Extracted (Click to change)</span>
-                          : <span style={{ fontSize: '0.72rem', color: 'var(--warning, #f59e0b)', fontWeight: '600' }}>â³ {nationalIdFileName}...</span>
+                          ? <span style={{ fontSize: '0.72rem', color: 'var(--success)', fontWeight: '600' }}>✓ Verified & Data Extracted (Click to change)</span>
+                          : <span style={{ fontSize: '0.72rem', color: 'var(--warning, #f59e0b)', fontWeight: '600' }}>⏳ {nationalIdFileName}...</span>
                         }
                       </div>
                     </div>
                   ) : (
                     <div>
                       {nationalIdVerifying
-                        ? <div style={{ color: 'var(--text-dim)', marginBottom: '6px' }}>â³ {nationalIdFileName}</div>
+                        ? <div style={{ color: 'var(--text-dim)', marginBottom: '6px' }}>⏳ {nationalIdFileName}</div>
                         : <Upload size={22} style={{ color: 'var(--text-dim)', margin: '0 auto 6px auto' }} />
                       }
                       <div style={{ fontSize: '0.84rem', fontWeight: '600', color: 'var(--text)' }}>Click to Upload Aadhaar Card (Front / Full Page)</div>
@@ -1306,11 +1283,11 @@ Authority: AuthentiQ Screening Portal`;
                   </div>
                 )}
 
-                {/* Aadhaar Fields â€” locked until OCR done */}
+                {/* Aadhaar Fields — locked until OCR done */}
                 <div style={{ opacity: nationalIdReady ? 1 : 0.45, pointerEvents: nationalIdReady ? 'auto' : 'none', transition: 'opacity 0.3s' }}>
                   {!nationalIdReady && (
                     <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span>ðŸ”’</span>
+                      <span>🔒</span>
                       <span>{nationalIdVerifying ? 'AI is verifying and extracting data from your document...' : 'Upload and verify your document above to unlock these fields.'}</span>
                     </div>
                   )}
@@ -1382,17 +1359,24 @@ Authority: AuthentiQ Screening Portal`;
                 STEP 4: DRIVING LICENSE BLOCK (OPTIONAL)
                 ========================================================= */}
             {uploadStep === 4 && (
-              <div className="doc-section-card">
+              <div className="doc-section-card fade-in">
                 
                 <div className="doc-section-header">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ fontSize: '1.2rem' }}>ðŸš—</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{
+                      width: '40px', height: '40px',
+                      background: 'var(--surface-container)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius-md)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: '1.3rem', flexShrink: 0
+                    }}>🚗</div>
                     <div>
-                      <h3 style={{ fontSize: '1.05rem', fontWeight: '700', color: 'var(--text)', margin: 0 }}>
-                        Step 4 of 4: Driving License (Optional)
+                      <h3 style={{ fontSize: '1rem', fontWeight: '700', color: 'var(--text-muted)', margin: 0 }}>
+                        Step 4 of 4 — Driving License
                       </h3>
-                      <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                        You can attach your Indian Driving License or skip this step
+                      <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                        Attach your Indian Driving License or skip this step
                       </span>
                     </div>
                   </div>
@@ -1436,15 +1420,15 @@ Authority: AuthentiQ Screening Portal`;
                       <div style={{ textAlign: 'left' }}>
                         <div style={{ fontSize: '0.84rem', fontWeight: '600', color: 'var(--text)' }}>{dlFileName}</div>
                         {dlReady
-                          ? <span style={{ fontSize: '0.72rem', color: 'var(--success)', fontWeight: '600' }}>&#x2713; Verified &amp; Data Extracted (Click to change)</span>
-                          : <span style={{ fontSize: '0.72rem', color: 'var(--warning, #f59e0b)', fontWeight: '600' }}>&#x23F3; {dlFileName}...</span>
+                          ? <span style={{ fontSize: '0.72rem', color: 'var(--success)', fontWeight: '600' }}>✓ Verified & Data Extracted (Click to change)</span>
+                          : <span style={{ fontSize: '0.72rem', color: 'var(--warning, #f59e0b)', fontWeight: '600' }}>⏳ {dlFileName}...</span>
                         }
                       </div>
                     </div>
                   ) : (
                     <div>
                       {dlVerifying
-                        ? <div style={{ color: 'var(--text-dim)', marginBottom: '6px' }}>&#x23F3; {dlFileName}</div>
+                        ? <div style={{ color: 'var(--text-dim)', marginBottom: '6px' }}>⏳ {dlFileName}</div>
                         : <Upload size={22} style={{ color: 'var(--text-dim)', margin: '0 auto 6px auto' }} />
                       }
                       <div style={{ fontSize: '0.84rem', fontWeight: '600', color: 'var(--text)' }}>Click to Upload Driving License Copy (Optional)</div>
@@ -1463,7 +1447,7 @@ Authority: AuthentiQ Screening Portal`;
                 <div style={{ opacity: dlReady ? 1 : 0.45, pointerEvents: dlReady ? 'auto' : 'none', transition: 'opacity 0.3s' }}>
                   {!dlReady && (
                     <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span>&#x1F512;</span>
+                      <span>🔒</span>
                       <span>{dlVerifying ? 'AI is verifying and extracting data from your document...' : 'Upload your DL above to unlock these fields, or skip this step.'}</span>
                     </div>
                   )}
@@ -1549,139 +1533,82 @@ Authority: AuthentiQ Screening Portal`;
                 STEP 5: REVIEW & FINAL SUBMIT APPLICATION
                 ========================================================= */}
             {uploadStep === 5 && (
-              <div className="doc-section-card">
+              <div className="doc-section-card fade-in">
                 
                 <div className="doc-section-header">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ fontSize: '1.2rem' }}>ðŸ“‹</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{
+                      width: '40px', height: '40px',
+                      background: 'var(--primary)',
+                      borderRadius: 'var(--radius-md)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: '1.1rem', flexShrink: 0
+                    }}>✅</div>
                     <div>
-                      <h3 style={{ fontSize: '1.05rem', fontWeight: '700', color: 'var(--text)', margin: 0 }}>
-                        Review Your Document Application
+                      <h3 style={{ fontSize: '1rem', fontWeight: '700', color: 'var(--primary)', margin: 0 }}>
+                        Review & Submit Your Application
                       </h3>
-                      <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                        Verify the attached images and document particulars before submitting
+                      <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                        Verify all attached images and document details before final submission
                       </span>
                     </div>
                   </div>
                   <span className="badge badge-traveller">Final Step</span>
                 </div>
 
-                {/* Summary Grid of 4 Documents */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', marginBottom: '32px' }}>
                   
                   {/* Passport Summary */}
-                  <div style={{ background: 'var(--surface-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '14px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                      <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--text)' }}>ðŸ›‚ 1. Passport</span>
-                      <button
-                        type="button"
-                        onClick={() => setUploadStep(1)}
-                        className="btn-subtle"
-                        style={{ padding: '2px 6px', fontSize: '0.72rem' }}>
-                        <Edit3 size={12} /> Edit
-                      </button>
+                  <div style={{ background: 'var(--surface-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '20px', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                      <span style={{ fontSize: '0.9rem', fontWeight: '700', color: 'var(--text)' }}>🛂 1. Passport</span>
+                      <button type="button" onClick={() => setUploadStep(1)} className="btn-subtle" style={{ padding: '4px 10px', fontSize: '0.76rem' }}><Edit3 size={14} /> Edit</button>
                     </div>
-                    {passportImg && (
-                      <img
-                        src={passportImg}
-                        alt="Passport thumbnail"
-                        style={{ width: '100%', height: '80px', objectFit: 'cover', borderRadius: '4px', marginBottom: '8px', border: '1px solid var(--border)' }}
-                      />
-                    )}
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                      No: <strong style={{ color: 'var(--text)' }}>{passportNumber || 'â€”'}</strong>
-                    </div>
-                    <div style={{ fontSize: '0.74rem', color: 'var(--text-dim)' }}>
-                      Name: {passportName || userName}
-                    </div>
+                    {passportImg && <img src={passportImg} alt="Passport" style={{ width: '100%', height: '140px', objectFit: 'cover', borderRadius: '8px', marginBottom: '16px', border: '1px solid var(--border)', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }} />}
+                    <div style={{ fontSize: '0.86rem', color: 'var(--text-muted)', marginBottom: '4px' }}>No: <strong style={{ color: 'var(--text)' }}>{passportNumber || '—'}</strong></div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>Name: {passportName || userName}</div>
                   </div>
 
                   {/* Visa Summary */}
-                  <div style={{ background: 'var(--surface-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '14px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                      <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--text)' }}>ðŸ“„ 2. Visa Document</span>
-                      <button
-                        type="button"
-                        onClick={() => setUploadStep(2)}
-                        className="btn-subtle"
-                        style={{ padding: '2px 6px', fontSize: '0.72rem' }}>
-                        <Edit3 size={12} /> Edit
-                      </button>
+                  <div style={{ background: 'var(--surface-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '20px', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                      <span style={{ fontSize: '0.9rem', fontWeight: '700', color: 'var(--text)' }}>📄 2. Visa Document</span>
+                      <button type="button" onClick={() => setUploadStep(2)} className="btn-subtle" style={{ padding: '4px 10px', fontSize: '0.76rem' }}><Edit3 size={14} /> Edit</button>
                     </div>
-                    {visaImg && (
-                      <img
-                        src={visaImg}
-                        alt="Visa thumbnail"
-                        style={{ width: '100%', height: '80px', objectFit: 'cover', borderRadius: '4px', marginBottom: '8px', border: '1px solid var(--border)' }}
-                      />
-                    )}
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                      No: <strong style={{ color: 'var(--text)' }}>{visaNumber || 'â€”'}</strong>
-                    </div>
-                    <div style={{ fontSize: '0.74rem', color: 'var(--text-dim)' }}>
-                      Type: {visaType} ({visaEntryType})
-                    </div>
+                    {visaImg && <img src={visaImg} alt="Visa" style={{ width: '100%', height: '140px', objectFit: 'cover', borderRadius: '8px', marginBottom: '16px', border: '1px solid var(--border)', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }} />}
+                    <div style={{ fontSize: '0.86rem', color: 'var(--text-muted)', marginBottom: '4px' }}>No: <strong style={{ color: 'var(--text)' }}>{visaNumber || '—'}</strong></div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>Type: {visaType} ({visaEntryType})</div>
                   </div>
 
                   {/* National ID Summary */}
-                  <div style={{ background: 'var(--surface-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '14px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                      <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--text)' }}>ðŸªª 3. Aadhaar Card</span>
-                      <button
-                        type="button"
-                        onClick={() => setUploadStep(3)}
-                        className="btn-subtle"
-                        style={{ padding: '2px 6px', fontSize: '0.72rem' }}>
-                        <Edit3 size={12} /> Edit
-                      </button>
+                  <div style={{ background: 'var(--surface-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '20px', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                      <span style={{ fontSize: '0.9rem', fontWeight: '700', color: 'var(--text)' }}>🪪 3. Aadhaar Card</span>
+                      <button type="button" onClick={() => setUploadStep(3)} className="btn-subtle" style={{ padding: '4px 10px', fontSize: '0.76rem' }}><Edit3 size={14} /> Edit</button>
                     </div>
-                    {nationalIdImg && (
-                      <img
-                        src={nationalIdImg}
-                        alt="National ID thumbnail"
-                        style={{ width: '100%', height: '80px', objectFit: 'cover', borderRadius: '4px', marginBottom: '8px', border: '1px solid var(--border)' }}
-                      />
-                    )}
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                      No: <strong style={{ color: 'var(--text)' }}>{nationalIdNumber || 'â€”'}</strong>
-                    </div>
-                    <div style={{ fontSize: '0.74rem', color: 'var(--text-dim)' }}>
-                      Pincode: {nationalIdPincode || 'â€”'}
-                    </div>
+                    {nationalIdImg && <img src={nationalIdImg} alt="National ID" style={{ width: '100%', height: '140px', objectFit: 'cover', borderRadius: '8px', marginBottom: '16px', border: '1px solid var(--border)', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }} />}
+                    <div style={{ fontSize: '0.86rem', color: 'var(--text-muted)', marginBottom: '4px' }}>No: <strong style={{ color: 'var(--text)' }}>{nationalIdNumber || '—'}</strong></div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>Pincode: {nationalIdPincode || '—'}</div>
                   </div>
 
                   {/* Driving License Summary */}
-                  <div style={{ background: 'var(--surface-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '14px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                      <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--text)' }}>ðŸš— 4. Driving License</span>
-                      <button
-                        type="button"
-                        onClick={() => setUploadStep(4)}
-                        className="btn-subtle"
-                        style={{ padding: '2px 6px', fontSize: '0.72rem' }}>
-                        <Edit3 size={12} /> Edit
-                      </button>
+                  <div style={{ background: 'var(--surface-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '20px', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                      <span style={{ fontSize: '0.9rem', fontWeight: '700', color: 'var(--text)' }}>🚗 4. Driving License</span>
+                      <button type="button" onClick={() => setUploadStep(4)} className="btn-subtle" style={{ padding: '4px 10px', fontSize: '0.76rem' }}><Edit3 size={14} /> Edit</button>
                     </div>
                     {dlImg ? (
-                      <img
-                        src={dlImg}
-                        alt="DL thumbnail"
-                        style={{ width: '100%', height: '80px', objectFit: 'cover', borderRadius: '4px', marginBottom: '8px', border: '1px solid var(--border)' }}
-                      />
+                      <img src={dlImg} alt="DL" style={{ width: '100%', height: '140px', objectFit: 'cover', borderRadius: '8px', marginBottom: '16px', border: '1px solid var(--border)', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }} />
                     ) : (
-                      <div style={{ height: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', borderRadius: '4px', color: 'var(--text-dim)', fontSize: '0.76rem', marginBottom: '8px' }}>
-                        Skipped (Optional)
-                      </div>
+                      <div style={{ height: '140px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-container)', borderRadius: '8px', color: 'var(--text-dim)', fontSize: '0.8rem', marginBottom: '16px' }}>Skipped (Optional)</div>
                     )}
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                      No: <strong style={{ color: 'var(--text)' }}>{dlNumber || 'Not provided'}</strong>
-                    </div>
+                    <div style={{ fontSize: '0.86rem', color: 'var(--text-muted)', marginBottom: '4px' }}>No: <strong style={{ color: 'var(--text)' }}>{dlNumber || 'Not provided'}</strong></div>
                   </div>
 
                 </div>
 
                 {/* Final Submit Buttons */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)', paddingTop: '18px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)', paddingTop: '24px' }}>
                   <button
                     type="button"
                     onClick={() => setUploadStep(4)}
@@ -1704,7 +1631,8 @@ Authority: AuthentiQ Screening Portal`;
 
               </div>
             )}
-
+              </>
+            )}
           </div>
         )}
 
@@ -1812,7 +1740,7 @@ Authority: AuthentiQ Screening Portal`;
                             {app.id}
                           </span>
                           <span style={{ fontSize: '0.74rem', color: 'var(--text-dim)' }}>
-                            â€¢ Submitted on {new Date(app.created_at || Date.now()).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            • Submitted on {new Date(app.created_at || Date.now()).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
                           </span>
                         </div>
                       </div>
@@ -1820,52 +1748,17 @@ Authority: AuthentiQ Screening Portal`;
                       {/* Clean Status Badge */}
                       <div>
                         {app.status === 'PASSED' && (
-                          <span style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '5px',
-                            padding: '4px 10px',
-                            borderRadius: 'var(--radius-sm)',
-                            fontSize: '0.76rem',
-                            fontWeight: '700',
-                            background: 'var(--success-bg)',
-                            color: 'var(--success)',
-                            border: '1px solid var(--success-border)'
-                          }}>
+                          <span className="status-badge status-passed">
                             <CheckCircle2 size={13} /> Passed & Verified
                           </span>
                         )}
-
                         {app.status === 'UNDER_REVIEW' && (
-                          <span style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '5px',
-                            padding: '4px 10px',
-                            borderRadius: 'var(--radius-sm)',
-                            fontSize: '0.76rem',
-                            fontWeight: '700',
-                            background: 'var(--warning-bg)',
-                            color: 'var(--warning)',
-                            border: '1px solid var(--warning-border)'
-                          }}>
-                            <Clock size={13} /> Currently Under Review
+                          <span className="status-badge status-review">
+                            <Clock size={13} /> Under Review
                           </span>
                         )}
-
                         {app.status === 'REJECTED' && (
-                          <span style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '5px',
-                            padding: '4px 10px',
-                            borderRadius: 'var(--radius-sm)',
-                            fontSize: '0.76rem',
-                            fontWeight: '700',
-                            background: 'var(--danger-bg)',
-                            color: 'var(--danger)',
-                            border: '1px solid var(--danger-border)'
-                          }}>
+                          <span className="status-badge status-rejected">
                             <XCircle size={13} /> Rejected
                           </span>
                         )}
@@ -1879,7 +1772,7 @@ Authority: AuthentiQ Screening Portal`;
                       {/* Passport Summary */}
                       <div style={{ background: 'var(--surface-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                          <span style={{ fontSize: '0.76rem', fontWeight: '700', color: 'var(--text)' }}>ðŸ›‚ Passport</span>
+                          <span style={{ fontSize: '0.76rem', fontWeight: '700', color: 'var(--text)' }}>🛂 Passport</span>
                           {app.passport_image && (
                             <button
                               type="button"
@@ -1891,7 +1784,7 @@ Authority: AuthentiQ Screening Portal`;
                           )}
                         </div>
                         <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                          No: <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>{app.passport_number || 'â€”'}</strong>
+                          No: <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>{app.passport_number || '—'}</strong>
                         </div>
                         <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>
                           Name: {app.passport_name || app.applicant_name}
@@ -1901,7 +1794,7 @@ Authority: AuthentiQ Screening Portal`;
                       {/* Visa Summary */}
                       <div style={{ background: 'var(--surface-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                          <span style={{ fontSize: '0.76rem', fontWeight: '700', color: 'var(--text)' }}>ðŸ“„ Visa Document</span>
+                          <span style={{ fontSize: '0.76rem', fontWeight: '700', color: 'var(--text)' }}>📄 Visa Document</span>
                           {app.visa_image && (
                             <button
                               type="button"
@@ -1913,7 +1806,7 @@ Authority: AuthentiQ Screening Portal`;
                           )}
                         </div>
                         <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                          No: <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>{app.visa_number || 'â€”'}</strong>
+                          No: <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>{app.visa_number || '—'}</strong>
                         </div>
                         <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>
                           Type: {app.visa_type || 'Tourist'} ({app.visa_entry_type || 'Multiple'})
@@ -1923,7 +1816,7 @@ Authority: AuthentiQ Screening Portal`;
                       {/* National ID Summary */}
                       <div style={{ background: 'var(--surface-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                          <span style={{ fontSize: '0.76rem', fontWeight: '700', color: 'var(--text)' }}>ðŸªª Aadhaar / National ID</span>
+                          <span style={{ fontSize: '0.76rem', fontWeight: '700', color: 'var(--text)' }}>🪪 Aadhaar / National ID</span>
                           {app.national_id_image && (
                             <button
                               type="button"
@@ -1935,7 +1828,7 @@ Authority: AuthentiQ Screening Portal`;
                           )}
                         </div>
                         <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                          No: <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>{app.national_id_number || 'â€”'}</strong>
+                          No: <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>{app.national_id_number || '—'}</strong>
                         </div>
                         <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>
                           Address: {app.national_id_address ? `${app.national_id_address.slice(0, 30)}...` : 'Provided'}
@@ -1946,7 +1839,7 @@ Authority: AuthentiQ Screening Portal`;
                       {app.driving_license_number && (
                         <div style={{ background: 'var(--surface-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                            <span style={{ fontSize: '0.76rem', fontWeight: '700', color: 'var(--text)' }}>ðŸš— Driving License</span>
+                            <span style={{ fontSize: '0.76rem', fontWeight: '700', color: 'var(--text)' }}>🚗 Driving License</span>
                             {app.driving_license_image && (
                               <button
                                 type="button"
@@ -1961,7 +1854,7 @@ Authority: AuthentiQ Screening Portal`;
                             No: <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>{app.driving_license_number}</strong>
                           </div>
                           <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>
-                            Class: {app.driving_license_vehicle_class || 'LMV'} â€¢ Blood: {app.driving_license_blood_group || 'O+'}
+                            Class: {app.driving_license_vehicle_class || 'LMV'} • Blood: {app.driving_license_blood_group || 'O+'}
                           </div>
                         </div>
                       )}
@@ -2017,7 +1910,7 @@ Authority: AuthentiQ Screening Portal`;
                     style={{ width: 'auto', padding: '5px 10px', fontSize: '0.8rem' }}>
                     {applications.map(app => (
                       <option key={app.id} value={app.id}>
-                        {app.id} â€” Status: {app.status}
+                        {app.id} — Status: {app.status}
                       </option>
                     ))}
                   </select>
@@ -2060,21 +1953,37 @@ Authority: AuthentiQ Screening Portal`;
                 </button>
               </div>
             ) : (
-              <div className="gov-certificate-card">
+              <div className="gov-certificate-card" style={{ borderTop: '4px solid var(--primary)' }}>
                 
                 {/* Certificate Header */}
-                <div style={{ textAlign: 'center', borderBottom: '1.5px solid var(--border)', paddingBottom: '16px', marginBottom: '20px' }}>
-                  <div style={{ fontSize: '1rem', fontWeight: '800', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text)' }}>
-                    AuthentiQ
-                  </div>
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '6px' }}>
-                    AI Based Fake Identity and Document Screening Portal
-                  </div>
-                  <h2 style={{ fontSize: '1.3rem', fontWeight: '800', color: 'var(--text)', margin: '6px 0 4px 0' }}>
-                    DIGITAL VERIFICATION CERTIFICATE
-                  </h2>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: 'var(--text-dim)' }}>
-                    Certificate ID: <strong style={{ color: 'var(--text)' }}>{currentCertApp.certificate_id || `AUTH-CERT-2026-${userId.slice(-6)}`}</strong>
+                <div style={{ borderBottom: '1.5px solid var(--border)', paddingBottom: '20px', marginBottom: '24px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', flexWrap: 'wrap' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                        <div style={{
+                          width: '36px', height: '36px',
+                          background: 'var(--primary)',
+                          borderRadius: 'var(--radius-sm)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          color: '#fff', fontWeight: '800', fontSize: '1.1rem'
+                        }}>Q</div>
+                        <div>
+                          <div style={{ fontSize: '0.72rem', fontWeight: '800', letterSpacing: '0.10em', textTransform: 'uppercase', color: 'var(--primary)' }}>AuthentiQ</div>
+                          <div style={{ fontSize: '0.68rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Identity Verification Portal</div>
+                        </div>
+                      </div>
+                      <h2 style={{ fontSize: '1.25rem', fontWeight: '800', color: 'var(--text)', margin: '0 0 4px 0', letterSpacing: '-0.01em' }}>
+                        Digital Verification Certificate
+                      </h2>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-dim)' }}>
+                        Cert ID: <strong style={{ color: 'var(--primary)' }}>{currentCertApp.certificate_id || `AUTH-CERT-2026-${userId.slice(-6)}`}</strong>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span className="status-badge status-passed pulse-green">
+                        <ShieldCheck size={14} /> Verified & Active
+                      </span>
+                    </div>
                   </div>
                 </div>
 
@@ -2160,18 +2069,22 @@ Authority: AuthentiQ Screening Portal`;
                 {/* Certificate Footer */}
                 <div style={{
                   borderTop: '1.5px solid var(--border)',
-                  paddingTop: '14px',
+                  paddingTop: '16px',
+                  marginTop: '8px',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
+                  gap: '12px',
+                  flexWrap: 'wrap',
                   fontSize: '0.72rem',
                   color: 'var(--text-dim)'
                 }}>
-                  <div>
-                    AuthentiQ Digital Screening Gateway â€¢ E-Gate Identity Verified
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <div style={{ width: '4px', height: '4px', borderRadius: '50%', background: 'var(--success)' }}></div>
+                    AuthentiQ Digital Screening Gateway &nbsp;•&nbsp; E-Gate Identity Verified
                   </div>
-                  <div style={{ fontWeight: '600', color: 'var(--text)' }}>
-                    Digitally Sealed & Verified
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '600', color: 'var(--primary)' }}>
+                    <ShieldCheck size={12} /> Digitally Sealed &amp; Verified
                   </div>
                 </div>
 
@@ -2345,10 +2258,10 @@ Authority: AuthentiQ Screening Portal`;
             </div>
           </div>
         )}
-          </div> {/* end right content panel */}
-        </div> {/* end sidebar + content flex row */}
-
+          </div>
+        </main>
       </div>
+
     </div>
   );
 }

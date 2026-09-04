@@ -61,8 +61,8 @@ export default function SignUpPage() {
     return `${clean.slice(0, 12)}_${Math.floor(1000 + Math.random() * 9000)}`;
   };
 
-  // Validate initial form fields
-  const validateForm = async () => {
+  // Validate initial form fields (sync checks only — no async calls here)
+  const validateFormSync = () => {
     const errs = {};
 
     if (!firstName.trim()) {
@@ -91,13 +91,6 @@ export default function SignUpPage() {
       errs.confirmPassword = 'Passwords do not match';
     }
 
-    if (!errs.email) {
-      const alreadyExists = await checkEmailExists(email.trim().toLowerCase());
-      if (alreadyExists) {
-        errs.email = 'This email is already registered in the database. Please sign in instead.';
-      }
-    }
-
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -108,12 +101,13 @@ export default function SignUpPage() {
     setErrors({});
     setApiError('');
 
-    const isValid = await validateForm();
-    if (!isValid) return;
+    // Run fast sync validation first (no network calls)
+    if (!validateFormSync()) return;
 
     setIsSubmitting(true);
     const cleanPhoneDigits = phone.trim().replace(/\D/g, '');
     const formattedPhone = `${countryCode} ${cleanPhoneDigits}`;
+    const cleanEmail = email.trim().toLowerCase();
 
     try {
       if (!isClerkLoaded || !signUp) {
@@ -122,14 +116,24 @@ export default function SignUpPage() {
         return;
       }
 
-      // Pre-generate candidate User ID
-      const candidateId = await generateUniqueUserId(role, checkUserIdExists);
+      // Run email-exists check AND unique ID generation IN PARALLEL — saves ~300–600ms
+      const [alreadyExists, candidateId] = await Promise.all([
+        checkEmailExists(cleanEmail),
+        generateUniqueUserId(role, checkUserIdExists)
+      ]);
+
+      if (alreadyExists) {
+        setErrors({ email: 'This email is already registered. Please sign in instead.' });
+        setIsSubmitting(false);
+        return;
+      }
+
       setAllocatedId(candidateId);
 
       const generatedUsername = generateClerkUsername(firstName, lastName);
 
       const clerkPayload = {
-        emailAddress: email.trim().toLowerCase(),
+        emailAddress: cleanEmail,
         password: password,
         firstName: firstName.trim(),
         lastName: (lastName || '').trim(),
@@ -143,50 +147,33 @@ export default function SignUpPage() {
         }
       };
 
-      // Create sign-up in Clerk with username & metadata
+      // Create sign-up in Clerk — phone is stored in unsafeMetadata & Supabase only.
+      // We do NOT pass phoneNumber to Clerk to avoid "phone_number not valid" errors
+      // when Clerk phone auth is disabled in the dashboard.
       try {
-        await signUp.create({
-          ...clerkPayload,
-          ...(cleanPhoneDigits ? { phoneNumber: `${countryCode}${cleanPhoneDigits}` } : {})
-        });
+        await signUp.create(clerkPayload);
       } catch (createErr) {
-        console.warn('Initial signUp.create notice:', createErr);
-        // If phone number is not configured in Clerk dashboard, retry without phone
-        if (
-          createErr.errors?.[0]?.code?.includes('phone') || 
-          createErr.message?.toLowerCase().includes('phone') ||
-          createErr.errors?.[0]?.message?.toLowerCase().includes('phone')
-        ) {
-          try {
-            await signUp.create(clerkPayload);
-          } catch (createWithoutPhoneErr) {
-            // If username is rejected by instance, retry without username
-            if (createWithoutPhoneErr.errors?.[0]?.code?.includes('username')) {
-              const { username: _unused, ...payloadWithoutUsername } = clerkPayload;
-              await signUp.create(payloadWithoutUsername);
-            } else {
-              throw createWithoutPhoneErr;
-            }
-          }
-        } else if (createErr.errors?.[0]?.code?.includes('username')) {
-          // If username is not allowed by this instance, retry without username
-          const { username: _unused, ...payloadWithoutUsername } = clerkPayload;
-          await signUp.create(payloadWithoutUsername);
+        console.warn('signUp.create notice:', createErr);
+        const errCode = createErr.errors?.[0]?.code || '';
+
+        // If this Clerk instance doesn't support usernames, retry without it
+        if (errCode.includes('username')) {
+          const { username: _u, ...withoutUsername } = clerkPayload;
+          await signUp.create(withoutUsername);
         } else {
           throw createErr;
         }
       }
 
-      // Dispatch real email OTP from Clerk
-      console.log('Dispatching real Clerk OTP email to:', email.trim().toLowerCase());
+      // Dispatch OTP email immediately after create (no extra wait)
       await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
       setStep('email_otp');
     } catch (err) {
       console.error('Clerk Signup Error:', err);
       if (err.errors?.[0]?.code === 'form_identifier_exists' || err.errors?.[0]?.message?.toLowerCase().includes('taken')) {
-        setApiError('This email is already registered in Clerk. If you deleted your database to test again, please also delete this user from your Clerk Dashboard (Users tab) or use an alias like yourname+1@gmail.com.');
+        setApiError('This email is already registered. Please sign in or use a different email address.');
       } else {
-        const message = err.errors?.[0]?.longMessage || err.errors?.[0]?.message || err.message || 'Registration failed. Please check your inputs.';
+        const message = err.errors?.[0]?.longMessage || err.errors?.[0]?.message || err.message || 'Registration failed. Please check your inputs and try again.';
         setApiError(message);
       }
     } finally {
