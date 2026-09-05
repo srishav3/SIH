@@ -563,3 +563,8 @@ body {
   50%       { box-shadow: 0 0 0 6px rgba(19,136,8,0); }
 }
 .pulse-green { animation: pulseGreen 2s ease-in-out infinite; }
+
+@keyframes pulse-dot {
+  0%, 100% { box-shadow: 0 0 0 3px var(--success-bg); }
+  50%       { box-shadow: 0 0 0 6px var(--success-bg); }
+}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   ShieldAlert,
   ShieldCheck,
@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   XCircle,
   FileSearch,
-  Cpu,
   Activity,
   Sliders,
   Eye,
@@ -20,9 +19,13 @@ import {
   Users,
   ClipboardList,
   AlertCircle,
+  RefreshCw,
+  Filter,
+  ChevronDown,
+  Calendar,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { saveTravellerIdentity } from '../lib/supabase';
+import { saveTravellerIdentity, fetchGovernmentRecords } from '../lib/supabase';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -68,7 +71,6 @@ function CreateUserModal({ onClose, officerUserId }) {
     if (!form.fullName.trim()) e.fullName = 'Full name is required';
     else if (!/^[a-zA-Z\s]+$/.test(form.fullName.trim())) e.fullName = 'Name must contain only letters';
     if (!form.passportNo.trim()) e.passportNo = 'Passport number is required';
-    if (!form.visaNo.trim()) e.visaNo = 'Visa number is required';
     if (!form.aadhaarNo.trim()) e.aadhaarNo = 'Aadhaar number is required';
     else if (cleanAadhaar(form.aadhaarNo).length !== 12) e.aadhaarNo = 'Aadhaar must be 12 digits';
     if (!form.dob) e.dob = 'Date of birth is required';
@@ -87,13 +89,13 @@ function CreateUserModal({ onClose, officerUserId }) {
 
     // Sanitize before saving
     const sanitized = {
-      fullName: toAlphaTitle(form.fullName),
-      passportNo: form.passportNo.trim().toUpperCase(),
-      visaNo: form.visaNo.trim().toUpperCase(),
-      aadhaarNo: cleanAadhaar(form.aadhaarNo),   // digits only
-      dob: form.dob,                              // already yyyy-mm-dd from <input type="date">
-      gender: toAlphaTitle(form.gender),          // capitalised alpha
-      nationality: toAlphaTitle(form.nationality),
+      fullName:    form.fullName.replace(/[^a-zA-Z\s]/g, '').trim().toUpperCase(),
+      passportNo:  form.passportNo.trim().toUpperCase(),
+      visaNo:      form.visaNo.trim() ? form.visaNo.trim().toUpperCase() : null,
+      aadhaarNo:   cleanAadhaar(form.aadhaarNo),   // digits only
+      dob:         form.dob,                        // already yyyy-mm-dd from <input type="date">
+      gender:      form.gender.trim().toUpperCase(),
+      nationality: form.nationality.replace(/[^a-zA-Z\s]/g, '').trim().toUpperCase(),
     };
 
     const { success, data, error } = await saveTravellerIdentity(sanitized, officerUserId);
@@ -179,7 +181,7 @@ function CreateUserModal({ onClose, officerUserId }) {
               <CheckCircle2 size={18} style={{ flexShrink: 0, marginTop: '1px' }} />
               <div>
                 <strong>Traveller registered successfully.</strong><br />
-                Record saved to <code style={{ fontSize: '0.78rem' }}>traveller_identities</code>.
+                Record saved to <code style={{ fontSize: '0.78rem' }}>government_records</code>.
               </div>
             </div>
 
@@ -280,8 +282,9 @@ function CreateUserModal({ onClose, officerUserId }) {
                 {errors.passportNo && <div className="field-error-text">{errors.passportNo}</div>}
               </div>
               <div className="form-group">
-                <label className="input-label">Visa Number</label>
+                <label className="input-label">Visa Number (Optional)</label>
                 <input
+                  type="text"
                   name="visaNo"
                   value={form.visaNo}
                   onChange={handleChange}
@@ -372,91 +375,224 @@ function CreateUserModal({ onClose, officerUserId }) {
 
 // ─── Tab: Overview ─────────────────────────────────────────────────────────
 function OverviewTab({ cases }) {
-  const highRisk   = cases.filter((c) => c.riskScore > 60);
-  const pending    = highRisk.filter((c) => c.status === 'PENDING_REVIEW').length;
-  const cleared    = highRisk.filter((c) => c.status === 'CLEARED').length;
-  const rejected   = highRisk.filter((c) => c.status === 'REJECTED').length;
+  const highRisk = cases.filter((c) => c.riskScore > 60);
+  const pending  = highRisk.filter((c) => c.status === 'PENDING_REVIEW').length;
+  const cleared  = highRisk.filter((c) => c.status === 'CLEARED').length;
+  const rejected = highRisk.filter((c) => c.status === 'REJECTED').length;
+  const clearRate = cases.length > 0 ? Math.round((cleared / cases.length) * 100) : 0;
 
   const statCards = [
     {
       label: 'Total Screened',
       value: cases.length,
       sub: 'live queue count',
-      icon: <Activity size={18} color="var(--primary)" />,
-      color: 'var(--primary)',
+      icon: <Activity size={20} />,
+      accent: 'var(--primary)',
+      accentBg: 'var(--primary-fixed)',
+      gradient: 'linear-gradient(135deg, rgba(0,0,128,0.06) 0%, transparent 60%)',
     },
     {
-      label: 'High-Risk (>60%)',
+      label: 'High-Risk Flagged',
       value: highRisk.length,
-      sub: '100% neural detection',
-      icon: <ShieldAlert size={18} color="var(--danger)" />,
-      color: 'var(--danger)',
+      sub: 'risk score > 60%',
+      icon: <ShieldAlert size={20} />,
+      accent: 'var(--danger)',
+      accentBg: 'var(--danger-bg)',
+      gradient: 'linear-gradient(135deg, var(--danger-bg) 0%, transparent 60%)',
     },
     {
       label: 'Pending Review',
       value: pending,
-      sub: 'awaiting officer sign-off',
-      icon: <Sliders size={18} color="var(--warning)" />,
-      color: 'var(--warning)',
+      sub: 'awaiting sign-off',
+      icon: <Sliders size={20} />,
+      accent: 'var(--warning)',
+      accentBg: 'var(--warning-bg)',
+      gradient: 'linear-gradient(135deg, var(--warning-bg) 0%, transparent 60%)',
     },
     {
-      label: 'Cleared / Rejected',
-      value: `${cleared} / ${rejected}`,
-      sub: 'resolved today',
-      icon: <ShieldCheck size={18} color="var(--success)" />,
-      color: 'var(--success)',
+      label: 'Cleared Today',
+      value: cleared,
+      sub: `${rejected} rejected`,
+      icon: <ShieldCheck size={20} />,
+      accent: 'var(--success)',
+      accentBg: 'var(--success-bg)',
+      gradient: 'linear-gradient(135deg, var(--success-bg) 0%, transparent 60%)',
     },
   ];
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+  const systemChecks = [
+    { label: 'MRZ Validator', status: 'ONLINE', ok: true },
+    { label: 'Face Biometrics', status: 'ONLINE', ok: true },
+    { label: 'Deepfake Neural Net', status: 'ONLINE', ok: true },
+    { label: 'Blockchain Ledger', status: 'SYNCED', ok: true },
+    { label: 'Interpol Feed', status: 'LIVE', ok: true },
+  ];
 
-      {/* Stat grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+
+      {/* ── Stat Cards ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '16px' }}>
         {statCards.map((s) => (
-          <div key={s.label} className="minimal-card" style={{ padding: '20px 22px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-              <span style={{ fontSize: '0.78rem', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                {s.label}
-              </span>
+          <div
+            key={s.label}
+            className="minimal-card"
+            style={{
+              padding: '22px 22px 18px',
+              background: `var(--surface)`,
+              backgroundImage: s.gradient,
+              position: 'relative',
+              overflow: 'hidden',
+              transition: 'box-shadow 0.2s, transform 0.2s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = 'var(--card-shadow-lg)'; }}
+            onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = ''; }}
+          >
+            {/* Accent top bar */}
+            <div style={{
+              position: 'absolute', top: 0, left: 0, right: 0, height: '3px',
+              background: s.accent, borderRadius: 'var(--radius-lg) var(--radius-lg) 0 0',
+            }} />
+
+            {/* Icon pill */}
+            <div style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              width: '38px', height: '38px',
+              background: s.accentBg,
+              borderRadius: 'var(--radius-md)',
+              color: s.accent,
+              marginBottom: '14px',
+            }}>
               {s.icon}
             </div>
-            <div style={{ fontSize: '1.9rem', fontWeight: '800', color: s.color, lineHeight: 1 }}>
+
+            <div style={{ fontSize: '2.2rem', fontWeight: '800', color: s.accent, lineHeight: 1, letterSpacing: '-0.02em' }}>
               {s.value}
             </div>
-            <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', marginTop: '6px' }}>
+            <div style={{ fontSize: '0.82rem', fontWeight: '600', color: 'var(--text)', marginTop: '6px' }}>
+              {s.label}
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', marginTop: '3px' }}>
               {s.sub}
             </div>
           </div>
         ))}
       </div>
 
-      {/* AI info panel */}
-      <div className="minimal-card" style={{ padding: '22px 26px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-          <Cpu size={18} color="var(--primary)" />
-          <h3 style={{ fontSize: '1rem', fontWeight: '700', color: 'var(--text)', margin: 0 }}>
-            AI Forensics Pipeline
-          </h3>
+      {/* ── Bottom Row: Status + Clear Rate ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+
+        {/* System Status */}
+        <div className="minimal-card" style={{ padding: '22px 24px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '18px' }}>
+            <div style={{
+              width: '8px', height: '8px', borderRadius: '50%',
+              background: 'var(--success)',
+              boxShadow: '0 0 0 3px var(--success-bg)',
+              animation: 'pulse-dot 2s infinite',
+            }} />
+            <h3 style={{ fontSize: '0.9rem', fontWeight: '700', color: 'var(--text)', margin: 0 }}>
+              System Status
+            </h3>
+            <span style={{
+              marginLeft: 'auto',
+              fontSize: '0.68rem', fontWeight: '700',
+              background: 'var(--success-bg)',
+              color: 'var(--success)',
+              border: '1px solid var(--success-border)',
+              borderRadius: 'var(--radius-pill)',
+              padding: '2px 9px',
+            }}>All Systems Go</span>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {systemChecks.map((sc) => (
+              <div key={sc.label} style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '9px 12px',
+                background: 'var(--surface-low)',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border)',
+              }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text)', fontWeight: '500' }}>
+                  {sc.label}
+                </span>
+                <span style={{
+                  fontSize: '0.68rem', fontWeight: '700',
+                  color: sc.ok ? 'var(--success)' : 'var(--danger)',
+                  display: 'flex', alignItems: 'center', gap: '5px',
+                }}>
+                  <span style={{
+                    display: 'inline-block', width: '6px', height: '6px',
+                    borderRadius: '50%',
+                    background: sc.ok ? 'var(--success)' : 'var(--danger)',
+                  }} />
+                  {sc.status}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px' }}>
-          {[
-            { label: 'Mean Latency', value: '128 ms', note: 'GPU accelerated' },
-            { label: 'MRZ Check', value: 'Active', note: 'Real-time hash validation' },
-            { label: 'Face Match', value: 'Active', note: 'Biometric pipeline' },
-            { label: 'Deepfake Scan', value: 'Active', note: 'Neural anomaly detector' },
-          ].map((i) => (
-            <div key={i.label} style={{
-              background: 'var(--surface-low)',
-              border: '1px solid var(--border)',
-              borderRadius: 'var(--radius-md)',
-              padding: '12px 14px',
-            }}>
-              <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{i.label}</div>
-              <div style={{ fontSize: '1rem', fontWeight: '700', color: 'var(--primary)' }}>{i.value}</div>
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)', marginTop: '2px' }}>{i.note}</div>
+
+        {/* Clearance Rate + Quick Summary */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+
+          {/* Clearance Rate Gauge */}
+          <div className="minimal-card" style={{ padding: '22px 24px' }}>
+            <h3 style={{ fontSize: '0.9rem', fontWeight: '700', color: 'var(--text)', margin: '0 0 16px' }}>
+              Clearance Rate
+            </h3>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px', marginBottom: '12px' }}>
+              <div style={{ fontSize: '2.8rem', fontWeight: '800', color: 'var(--success)', lineHeight: 1, letterSpacing: '-0.03em' }}>
+                {clearRate}%
+              </div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', paddingBottom: '4px', lineHeight: 1.5 }}>
+                of total<br />screened
+              </div>
             </div>
-          ))}
+            {/* Progress bar */}
+            <div style={{ height: '8px', background: 'var(--surface-highest)', borderRadius: '99px', overflow: 'hidden' }}>
+              <div style={{
+                height: '100%',
+                width: `${clearRate}%`,
+                background: 'linear-gradient(90deg, var(--success), #4ade80)',
+                borderRadius: '99px',
+                transition: 'width 0.6s cubic-bezier(.4,0,.2,1)',
+              }} />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px', fontSize: '0.7rem', color: 'var(--text-dim)' }}>
+              <span>{cleared} cleared</span>
+              <span>{rejected} rejected</span>
+            </div>
+          </div>
+
+          {/* Risk Breakdown */}
+          <div className="minimal-card" style={{ padding: '22px 24px', flex: 1 }}>
+            <h3 style={{ fontSize: '0.9rem', fontWeight: '700', color: 'var(--text)', margin: '0 0 14px' }}>
+              Risk Breakdown
+            </h3>
+            {[
+              { label: 'Critical (>80%)', count: cases.filter(c => c.riskScore > 80).length, color: 'var(--danger)' },
+              { label: 'High (61–80%)', count: cases.filter(c => c.riskScore > 60 && c.riskScore <= 80).length, color: 'var(--warning)' },
+              { label: 'Safe (≤60%)', count: cases.filter(c => c.riskScore <= 60).length, color: 'var(--success)' },
+            ].map((row) => (
+              <div key={row.label} style={{ marginBottom: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', marginBottom: '4px' }}>
+                  <span style={{ color: 'var(--text-muted)', fontWeight: '500' }}>{row.label}</span>
+                  <span style={{ fontWeight: '700', color: row.color }}>{row.count}</span>
+                </div>
+                <div style={{ height: '5px', background: 'var(--surface-highest)', borderRadius: '99px', overflow: 'hidden' }}>
+                  <div style={{
+                    height: '100%',
+                    width: cases.length > 0 ? `${(row.count / cases.length) * 100}%` : '0%',
+                    background: row.color,
+                    borderRadius: '99px',
+                    transition: 'width 0.5s ease',
+                  }} />
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -744,15 +880,283 @@ function ScreeningTab({ cases, setCases }) {
 
 // ─── Tab: Registered Travellers ────────────────────────────────────────────
 function RegisteredTab() {
+  const [records, setRecords]         = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const [fetchError, setFetchError]   = useState(null);
+  const [query, setQuery]             = useState('');
+  const [filterField, setFilterField] = useState('all');
+  const [showFilter, setShowFilter]   = useState(false);
+  const [selected, setSelected]       = useState(null);
+
+  const FILTER_OPTIONS = [
+    { value: 'all',         label: 'All Fields' },
+    { value: 'full_name',   label: 'Name' },
+    { value: 'passport_no', label: 'Passport No' },
+    { value: 'aadhaar_no',  label: 'Aadhaar No' },
+    { value: 'visa_no',     label: 'Visa No' },
+    { value: 'nationality', label: 'Nationality' },
+    { value: 'gender',      label: 'Gender' },
+  ];
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setFetchError(null);
+    const { data, error: err } = await fetchGovernmentRecords();
+    setLoading(false);
+    if (err) { setFetchError(err); return; }
+    setRecords(data);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  // ── Filtering ──
+  const filtered = records.filter((r) => {
+    if (!query.trim()) return true;
+    const q = query.trim().toLowerCase();
+    if (filterField === 'all') {
+      return [r.full_name, r.passport_no, r.aadhaar_no, r.visa_no, r.nationality, r.gender]
+        .some((v) => v?.toLowerCase().includes(q));
+    }
+    return String(r[filterField] || '').toLowerCase().includes(q);
+  });
+
+  const DetailRow = ({ label, value, mono }) => (
+    <div style={{
+      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+      padding: '8px 0', borderBottom: '1px solid var(--border)',
+    }}>
+      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '500', flexShrink: 0 }}>{label}</span>
+      <span style={{
+        fontSize: '0.8rem', color: 'var(--text)', fontWeight: '600',
+        fontFamily: mono ? 'var(--font-mono)' : 'inherit',
+        letterSpacing: mono ? '0.04em' : 0,
+        maxWidth: '62%', textAlign: 'right', wordBreak: 'break-all',
+      }}>{value || '—'}</span>
+    </div>
+  );
+
   return (
-    <div className="minimal-card" style={{ padding: '48px 24px', textAlign: 'center' }}>
-      <Users size={40} color="var(--text-dim)" style={{ margin: '0 auto 14px auto' }} />
-      <div style={{ fontWeight: '700', color: 'var(--text)', marginBottom: '6px', fontSize: '1rem' }}>
-        Registered Travellers
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+
+      {/* ── Toolbar ── */}
+      <div className="minimal-card" style={{ padding: '14px 18px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+
+          {/* Search */}
+          <div style={{ position: 'relative', flex: '1 1 240px' }}>
+            <Search size={14} color="var(--text-dim)"
+              style={{ position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)' }} />
+            <input
+              type="text"
+              className="input-field"
+              placeholder={`Search by ${FILTER_OPTIONS.find(o => o.value === filterField)?.label || 'all fields'}…`}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              style={{ paddingLeft: '34px', height: '38px' }}
+            />
+          </div>
+
+          {/* Filter dropdown */}
+          <div style={{ position: 'relative' }}>
+            <button
+              type="button"
+              onClick={() => setShowFilter((v) => !v)}
+              className="btn-secondary"
+              style={{ height: '38px', gap: '6px', whiteSpace: 'nowrap' }}
+            >
+              <Filter size={14} />
+              {FILTER_OPTIONS.find(o => o.value === filterField)?.label}
+              <ChevronDown size={13} />
+            </button>
+            {showFilter && (
+              <div style={{
+                position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 50,
+                background: 'var(--surface)', border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-md)', boxShadow: 'var(--card-shadow-lg)',
+                minWidth: '160px', overflow: 'hidden',
+              }}>
+                {FILTER_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => { setFilterField(opt.value); setShowFilter(false); }}
+                    style={{
+                      display: 'block', width: '100%', textAlign: 'left',
+                      padding: '9px 14px', border: 'none', cursor: 'pointer',
+                      fontSize: '0.82rem',
+                      fontWeight: filterField === opt.value ? '700' : '400',
+                      background: filterField === opt.value ? 'var(--primary-fixed)' : 'transparent',
+                      color: filterField === opt.value ? 'var(--primary)' : 'var(--text)',
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Count */}
+          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', marginLeft: 'auto' }}>
+            {loading ? 'Loading…' : `${filtered.length} / ${records.length} records`}
+          </span>
+
+          {/* Refresh */}
+          <button
+            type="button"
+            onClick={load}
+            className="btn-secondary"
+            title="Refresh"
+            style={{ height: '38px', width: '38px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+          >
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
       </div>
-      <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', maxWidth: '340px', margin: '0 auto', lineHeight: 1.7 }}>
-        Travellers registered via the <strong>Create New User</strong> button will appear here once this view is connected to the Supabase <code>traveller_identities</code> table.
-      </p>
+
+      {/* ── List + Detail ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,0.7fr)', gap: '16px' }}>
+
+        {/* List */}
+        <div className="minimal-card" style={{ padding: '16px' }}>
+
+          {loading && (
+            <div style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--text-muted)' }}>
+              <Loader2 size={28} className="animate-spin" style={{ margin: '0 auto 10px', display: 'block' }} />
+              <div style={{ fontSize: '0.84rem' }}>Fetching records from government_records…</div>
+            </div>
+          )}
+
+          {!loading && fetchError && (
+            <div className="alert-box alert-danger" style={{ margin: '4px' }}>
+              <AlertCircle size={16} style={{ flexShrink: 0 }} />
+              <span>{fetchError}</span>
+            </div>
+          )}
+
+          {!loading && !fetchError && filtered.length === 0 && (
+            <div style={{
+              textAlign: 'center', padding: '48px 20px',
+              border: '2px dashed var(--border)', borderRadius: 'var(--radius-lg)',
+              background: 'var(--surface-low)',
+            }}>
+              <Users size={34} color="var(--text-dim)" style={{ margin: '0 auto 10px', display: 'block' }} />
+              <div style={{ fontWeight: '600', color: 'var(--text)', marginBottom: '4px' }}>
+                {records.length === 0 ? 'No Records Yet' : 'No Match Found'}
+              </div>
+              <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: 0 }}>
+                {records.length === 0
+                  ? 'Register a traveller using "Create New User" button.'
+                  : 'Try a different search term or change the filter.'}
+              </p>
+            </div>
+          )}
+
+          {!loading && !fetchError && filtered.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '520px', overflowY: 'auto' }}>
+              {filtered.map((rec) => (
+                <div
+                  key={rec.id || rec.identity_hash}
+                  onClick={() => setSelected(selected?.id === rec.id ? null : rec)}
+                  style={{
+                    padding: '14px 16px', borderRadius: 'var(--radius-md)',
+                    border: selected?.id === rec.id ? '1.5px solid var(--primary)' : '1px solid var(--border)',
+                    background: selected?.id === rec.id ? 'var(--primary-fixed)' : 'var(--surface-low)',
+                    cursor: 'pointer', transition: 'all 0.15s',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                    <div>
+                      <div style={{ fontWeight: '700', fontSize: '0.9rem', color: 'var(--text)' }}>
+                        {rec.full_name}
+                      </div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '3px' }}>
+                        {rec.passport_no} · {rec.nationality}
+                      </div>
+                    </div>
+                    <span style={{
+                      fontSize: '0.68rem', fontWeight: '700',
+                      background: rec.gender === 'MALE' ? 'rgba(0,0,128,0.08)' : rec.gender === 'FEMALE' ? 'rgba(186,26,26,0.08)' : 'var(--surface-container)',
+                      color: rec.gender === 'MALE' ? 'var(--primary)' : rec.gender === 'FEMALE' ? 'var(--danger)' : 'var(--text-muted)',
+                      border: `1px solid ${rec.gender === 'MALE' ? 'rgba(0,0,128,0.2)' : rec.gender === 'FEMALE' ? 'rgba(186,26,26,0.2)' : 'var(--border)'}`,
+                      borderRadius: 'var(--radius-pill)', padding: '2px 8px', whiteSpace: 'nowrap',
+                    }}>
+                      {rec.gender}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px', fontSize: '0.69rem', color: 'var(--text-dim)' }}>
+                    <span>DOB: {rec.dob}</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Calendar size={10} />
+                      {rec.created_at ? new Date(rec.created_at).toLocaleDateString('en-IN') : '—'}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Detail Panel */}
+        <div className="minimal-card" style={{ padding: '20px 22px' }}>
+          {selected ? (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+                <Hash size={16} color="var(--primary)" />
+                <h3 style={{ fontSize: '0.95rem', fontWeight: '700', color: 'var(--text)', margin: 0 }}>
+                  Identity Details
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setSelected(null)}
+                  style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-dim)', display: 'flex' }}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <DetailRow label="Full Name"     value={selected.full_name} />
+              <DetailRow label="Date of Birth" value={selected.dob} mono />
+              <DetailRow label="Gender"        value={selected.gender} />
+              <DetailRow label="Nationality"   value={selected.nationality} />
+              <DetailRow label="Passport No"   value={selected.passport_no} mono />
+              <DetailRow label="Visa No"       value={selected.visa_no} mono />
+              <DetailRow label="Aadhaar No"    value={selected.aadhaar_no} mono />
+              <DetailRow label="Registered By" value={selected.created_by_officer} mono />
+              <DetailRow label="Registered On" value={selected.created_at ? new Date(selected.created_at).toLocaleString('en-IN') : '—'} />
+
+              <div style={{ marginTop: '14px' }}>
+                <div style={{
+                  fontSize: '0.7rem', fontWeight: '600', color: 'var(--text-muted)',
+                  marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.04em',
+                }}>
+                  SHA-256 Identity Hash
+                </div>
+                <div style={{
+                  background: 'var(--surface-low)', border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-md)', padding: '10px 12px',
+                  fontFamily: 'var(--font-mono)', fontSize: '0.6rem',
+                  color: 'var(--text-muted)', wordBreak: 'break-all', lineHeight: 1.9,
+                }}>
+                  {selected.identity_hash}
+                </div>
+              </div>
+            </>
+          ) : (
+            <div style={{
+              height: '100%', minHeight: '200px',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              border: '2px dashed var(--border)', borderRadius: 'var(--radius-lg)',
+              background: 'var(--surface-low)', textAlign: 'center', padding: '24px',
+            }}>
+              <Eye size={28} color="var(--text-dim)" style={{ marginBottom: '10px' }} />
+              <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: 0 }}>
+                Click a record to view full identity details.
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

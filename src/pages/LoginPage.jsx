@@ -54,6 +54,11 @@ export default function LoginPage() {
         
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+          <img
+            src="/logo.png"
+            alt="AuthentiQ Logo"
+            style={{ width: '48px', height: '48px', objectFit: 'contain', marginBottom: '16px' }}
+          />
           <h1 style={{ fontSize: '1.45rem', fontWeight: '600', color: 'var(--text)', marginBottom: '6px', letterSpacing: '-0.01em' }}>
             Sign In
           </h1>

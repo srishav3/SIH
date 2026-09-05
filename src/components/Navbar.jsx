@@ -36,20 +36,16 @@ export default function Navbar() {
         
         {/* Brand */}
         <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: '10px', textDecoration: 'none' }}>
-          <div style={{
-            width: '32px',
-            height: '32px',
-            borderRadius: 'var(--radius-sm)',
-            background: 'var(--btn-primary-bg)',
-            color: 'var(--btn-primary-text)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontWeight: '700',
-            fontSize: '0.95rem'
-          }}>
-            Q
-          </div>
+          <img
+            src="/logo.png"
+            alt="AuthentiQ Logo"
+            style={{
+              width: '36px',
+              height: '36px',
+              objectFit: 'contain',
+              borderRadius: 'var(--radius-sm)',
+            }}
+          />
           <div>
             <span style={{ fontSize: '1.05rem', fontWeight: '700', letterSpacing: '-0.02em', color: 'var(--text)' }}>
               AuthentiQ

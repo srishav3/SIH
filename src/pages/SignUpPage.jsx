@@ -397,6 +397,11 @@ export default function SignUpPage() {
         {step === 'details' && (
           <form onSubmit={handleInitiateSignup}>
             <div style={{ marginBottom: '24px', textAlign: 'center' }}>
+              <img
+                src="/logo.png"
+                alt="AuthentiQ Logo"
+                style={{ width: '48px', height: '48px', objectFit: 'contain', marginBottom: '16px' }}
+              />
               <h1 style={{ fontSize: '1.45rem', fontWeight: '700', color: 'var(--text)', marginBottom: '4px', letterSpacing: '-0.02em' }}>
                 Create Account
               </h1>

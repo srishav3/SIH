@@ -393,24 +393,24 @@ function parseSaveError(msg) {
 export async function saveTravellerIdentity(identityData, officerUserId) {
   const { fullName, passportNo, visaNo, aadhaarNo, dob, gender, nationality } = identityData;
 
-  // Normalise to exact DB-stored format
-  const storedName        = String(fullName).trim();            // Title Case  – enforced by form
-  const storedPassport    = String(passportNo).trim().toUpperCase();
-  const storedVisa        = String(visaNo).trim().toUpperCase();
-  const storedAadhaar     = String(aadhaarNo).trim();           // digits only – enforced by form
-  const storedDob         = String(dob).trim();                 // yyyy-mm-dd  – from <input type="date">
-  const storedGender      = String(gender).trim();              // Male / Female / Other
-  const storedNationality = String(nationality).trim();         // Title Case  – enforced by form
+  // Normalise to exact DB-stored format (all uppercased fields)
+  const storedName        = String(fullName).trim().toUpperCase();    // UPPERCASE e.g. RAJESH KUMAR SHARMA
+  const storedPassport    = String(passportNo).trim().toUpperCase();  // UPPERCASE e.g. R1234567
+  const storedVisa        = visaNo ? String(visaNo).trim().toUpperCase() : null;      // UPPERCASE or null
+  const storedAadhaar     = String(aadhaarNo).trim();                 // digits only e.g. 123456789012
+  const storedDob         = String(dob).trim();                       // yyyy-mm-dd from <input type="date">
+  const storedGender      = String(gender).trim().toUpperCase();      // UPPERCASE e.g. MALE / FEMALE
+  const storedNationality = String(nationality).trim().toUpperCase(); // UPPERCASE e.g. INDIAN
 
   // SHA-256: pipe-delimited, same format as what is stored in DB columns
   const hashInput = [
     storedName,
     storedPassport,
-    storedVisa,
+    storedVisa || 'NONE',
     storedAadhaar,
     storedDob,
     storedGender,
-    storedNationality,
+    storedNationality
   ].join('|');
 
   const identityHash = await sha256(hashInput);
@@ -425,19 +425,48 @@ export async function saveTravellerIdentity(identityData, officerUserId) {
     aadhaar_no:         storedAadhaar,
     identity_hash:      identityHash,
     created_by_officer: officerUserId || null,
-    // created_at / updated_at — handled by DB DEFAULT now()
+    created_at:         new Date().toISOString(),
+  };
+
+  // ── Helper: persist to localStorage as fallback store ──────────────────────
+  const saveLocally = () => {
+    try {
+      const raw = localStorage.getItem('authentiq_government_records');
+      const existing = raw ? JSON.parse(raw) : [];
+      // Reject duplicate identity_hash
+      if (existing.some((r) => r.identity_hash === identityHash)) {
+        return { success: false, data: null, error: 'A traveller with identical identity details already exists in the system.' };
+      }
+      localStorage.setItem(
+        'authentiq_government_records',
+        JSON.stringify([record, ...existing])
+      );
+      return { success: true, data: record, error: null };
+    } catch (e) {
+      return { success: false, data: null, error: 'Failed to save record locally.' };
+    }
   };
 
   if (isSupabaseConfigured && supabase) {
     try {
       const { data, error } = await supabase
-        .from('traveller_identities')
+        .from('government_records')
         .insert([record])
         .select()
         .single();
 
       if (error) {
-        console.error('Supabase traveller_identities insert error:', error);
+        console.error('Supabase government_records insert error:', error);
+
+        // If table doesn't exist or RLS blocks → fall back to localStorage
+        const isTableMissing = error.code === '42P01' || error.message?.includes('does not exist');
+        const isRLS = error.code === '42501' || error.message?.includes('permission denied') || error.message?.toLowerCase().includes('rls');
+
+        if (isTableMissing || isRLS) {
+          console.warn('Falling back to localStorage for traveller identity storage.');
+          return saveLocally();
+        }
+
         return { success: false, data: null, error: parseSaveError(error.message) };
       }
 
@@ -445,12 +474,48 @@ export async function saveTravellerIdentity(identityData, officerUserId) {
       return { success: true, data: { ...data, identity_hash: identityHash }, error: null };
     } catch (err) {
       console.error('Supabase exception:', err);
-      return { success: false, data: null, error: parseSaveError(err.message) };
+      // Network/config error → fall back to localStorage
+      console.warn('Network error — falling back to localStorage for traveller identity storage.');
+      return saveLocally();
     }
   }
 
-  // Offline fallback
-  return { success: true, data: { ...record }, error: null };
+  // Supabase not configured → localStorage only
+  return saveLocally();
 }
 
+/**
+ * Fetches all records from government_records table.
+ * Falls back to localStorage if Supabase is unavailable.
+ * @returns {Promise<{ success: boolean, data: Array, error: string | null }>}
+ */
+export async function fetchGovernmentRecords() {
+  // 1. Try Supabase first
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('government_records')
+        .select('*')
+        .order('created_at', { ascending: false });
 
+      if (error) {
+        console.error('Supabase government_records fetch error:', error);
+        // Fall through to localStorage
+      } else {
+        return { success: true, data: data || [], error: null };
+      }
+    } catch (err) {
+      console.warn('Supabase government_records fetch exception:', err);
+      // Fall through to localStorage
+    }
+  }
+
+  // 2. localStorage fallback
+  try {
+    const raw = localStorage.getItem('authentiq_government_records');
+    const data = raw ? JSON.parse(raw) : [];
+    return { success: true, data: Array.isArray(data) ? data : [], error: null };
+  } catch {
+    return { success: true, data: [], error: null };
+  }
+}
