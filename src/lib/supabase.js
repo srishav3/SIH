@@ -262,7 +262,15 @@ export async function saveDocumentApplication(appData) {
   expDate.setFullYear(expDate.getFullYear() + 1);
   const expDateStr = expDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 
-  const status = appData.status || 'PASSED'; // 'PASSED' | 'UNDER_REVIEW' | 'REJECTED'
+  const status = appData.status || 'PASSED';
+
+  // ── Upload all document images to Supabase Storage in parallel ──────────────
+  const [passportImgUrl, visaImgUrl, aadhaarImgUrl, licenseImgUrl] = await Promise.all([
+    uploadDocumentImage(appData.passport_image,         cleanId, 'passport'),
+    uploadDocumentImage(appData.visa_image,             cleanId, 'visa'),
+    uploadDocumentImage(appData.national_id_image,      cleanId, 'aadhaar'),
+    uploadDocumentImage(appData.driving_license_image,  cleanId, 'license'),
+  ]);
 
   const newApp = {
     id: appData.id || `APP-${today.getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`,
@@ -273,8 +281,8 @@ export async function saveDocumentApplication(appData) {
     applicant_name: appData.applicant_name || 'Traveller',
     destination: appData.destination || 'All Transit Gates & E-Gates',
     
-    // 1. Passport Details
-    passport_image: appData.passport_image || '',
+    // 1. Passport Details (image stored as public URL)
+    passport_image: passportImgUrl,
     passport_name: appData.passport_name || '',
     passport_number: (appData.passport_number || '').toUpperCase(),
     passport_nationality: appData.passport_nationality || 'IND',
@@ -285,7 +293,7 @@ export async function saveDocumentApplication(appData) {
     passport_doi: appData.passport_doi || '',
     
     // 2. Visa Details
-    visa_image: appData.visa_image || '',
+    visa_image: visaImgUrl,
     visa_name: appData.visa_name || '',
     visa_number: (appData.visa_number || '').toUpperCase(),
     visa_type: appData.visa_type || 'Tourist',
@@ -297,7 +305,7 @@ export async function saveDocumentApplication(appData) {
     visa_gender: appData.visa_gender || 'Male',
     
     // 3. National ID (Aadhaar) Details
-    national_id_image: appData.national_id_image || '',
+    national_id_image: aadhaarImgUrl,
     national_id_name: appData.national_id_name || '',
     national_id_number: (appData.national_id_number || '').toUpperCase(),
     national_id_dob: appData.national_id_dob || '',
@@ -306,8 +314,8 @@ export async function saveDocumentApplication(appData) {
     national_id_address: appData.national_id_address || '',
     national_id_pincode: appData.national_id_pincode || '',
     
-    // 4. Driving License (Indian DL) Details
-    driving_license_image: appData.driving_license_image || '',
+    // 4. Driving License (Optional)
+    driving_license_image: licenseImgUrl,
     driving_license_name: appData.driving_license_name || '',
     driving_license_number: (appData.driving_license_number || '').toUpperCase(),
     driving_license_dob: appData.driving_license_dob || '',
@@ -329,7 +337,7 @@ export async function saveDocumentApplication(appData) {
     created_at: new Date().toISOString()
   };
 
-  // 1. Update localStorage cache
+  // ── Save to localStorage ───────────────────────────────────────────────────
   try {
     const raw = localStorage.getItem(`${APPS_STORAGE_KEY}_${cleanId}`);
     const existing = raw ? JSON.parse(raw) : [];
@@ -339,13 +347,25 @@ export async function saveDocumentApplication(appData) {
     console.warn('LocalStorage app write warning:', err);
   }
 
-  // 2. Try Supabase write
+  // ── Save to Supabase: document_applications + 4 individual tables ─────────
   if (isSupabaseConfigured && supabase) {
-    try {
-      await supabase.from('document_applications').upsert([newApp]);
-    } catch (err) {
-      console.warn('Supabase document_applications write notice:', err);
-    }
+    // Build payload with updated image URLs for individual table saves
+    const enrichedPayload = {
+      ...appData,
+      user_id:              cleanId,
+      passport_image:       passportImgUrl,
+      visa_image:           visaImgUrl,
+      national_id_image:    aadhaarImgUrl,
+      driving_license_image: licenseImgUrl,
+    };
+
+    await Promise.allSettled([
+      supabase.from('document_applications').upsert([newApp]),
+      savePassportData(enrichedPayload),
+      saveVisaData(enrichedPayload),
+      saveAadhaarData(enrichedPayload),
+      saveLicenseData(enrichedPayload),
+    ]);
   }
 
   return { success: true, data: newApp };
@@ -517,5 +537,157 @@ export async function fetchGovernmentRecords() {
     return { success: true, data: Array.isArray(data) ? data : [], error: null };
   } catch {
     return { success: true, data: [], error: null };
+  }
+}
+
+
+// ─── Document Image Upload ─────────────────────────────────────────────────
+
+/**
+ * Uploads a base64 dataURL image to Supabase Storage "document-images" bucket.
+ * Falls back to returning the original base64 string if upload fails.
+ *
+ * @param {string} dataUrl  - base64 data URL (from FileReader)
+ * @param {string} userId   - traveller's user_id
+ * @param {string} docType  - one of: "passport" | "visa" | "aadhaar" | "license"
+ * @returns {Promise<string>} public URL string (or original dataUrl on failure)
+ */
+export async function uploadDocumentImage(dataUrl, userId, docType) {
+  if (!isSupabaseConfigured || !supabase) return dataUrl; // fallback
+  if (!dataUrl || !dataUrl.startsWith('data:')) return dataUrl;
+
+  try {
+    // Convert base64 dataURL → Blob
+    const response = await fetch(dataUrl);
+    const blob = await response.blob();
+    const ext = blob.type.split('/')[1] || 'jpg';
+    const timestamp = Date.now();
+    const path = `${userId}/${docType}_${timestamp}.${ext}`;
+
+    const { error } = await supabase.storage
+      .from('document-images')
+      .upload(path, blob, { contentType: blob.type, upsert: true });
+
+    if (error) {
+      console.warn(`Storage upload failed for ${docType}:`, error.message);
+      return dataUrl; // fallback to base64
+    }
+
+    const { data: urlData } = supabase.storage
+      .from('document-images')
+      .getPublicUrl(path);
+
+    return urlData?.publicUrl || dataUrl;
+  } catch (err) {
+    console.warn(`uploadDocumentImage exception (${docType}):`, err);
+    return dataUrl; // fallback to base64
+  }
+}
+
+
+// ─── Individual Document Table Savers ────────────────────────────────────────
+
+/** Save passport details to passport_data table */
+async function savePassportData(payload) {
+  if (!isSupabaseConfigured || !supabase) return;
+  try {
+    const record = {
+      user_id:         payload.user_id,
+      image_url:       payload.passport_image || null,
+      full_name:       (payload.passport_name || '').toUpperCase() || null,
+      passport_number: (payload.passport_number || '').toUpperCase() || null,
+      nationality:     (payload.passport_nationality || '').toUpperCase() || null,
+      dob:             payload.passport_dob || null,
+      date_of_issue:   payload.passport_doi || null,
+      date_of_expiry:  payload.passport_doe || null,
+      gender:          (payload.passport_gender || '').toUpperCase() || null,
+      place_of_issue:  payload.passport_place_of_issue
+                         ? payload.passport_place_of_issue.toUpperCase()
+                         : null,
+    };
+    // Only insert if minimum required fields are present
+    if (!record.full_name || !record.passport_number || !record.dob || !record.gender) return;
+    await supabase.from('passport_data').insert([record]);
+  } catch (err) {
+    console.warn('savePassportData error:', err.message);
+  }
+}
+
+/** Save visa details to visa_data table */
+async function saveVisaData(payload) {
+  if (!isSupabaseConfigured || !supabase) return;
+  try {
+    const record = {
+      user_id:         payload.user_id,
+      image_url:       payload.visa_image || null,
+      full_name:       (payload.visa_name || '').toUpperCase() || null,
+      visa_number:     (payload.visa_number || '').toUpperCase() || null,
+      visa_type:       (payload.visa_type || '').toUpperCase() || null,
+      entry_type:      (payload.visa_entry_type || '').toUpperCase() || null,
+      nationality:     (payload.visa_nationality || '').toUpperCase() || null,
+      dob:             payload.visa_dob || null,
+      date_of_issue:   payload.visa_doi || null,
+      date_of_expiry:  payload.visa_doe || null,
+      gender:          (payload.visa_gender || '').toUpperCase() || null,
+    };
+    if (!record.full_name || !record.visa_number || !record.dob || !record.gender) return;
+    await supabase.from('visa_data').insert([record]);
+  } catch (err) {
+    console.warn('saveVisaData error:', err.message);
+  }
+}
+
+/** Save Aadhaar details to aadhaar_data table */
+async function saveAadhaarData(payload) {
+  if (!isSupabaseConfigured || !supabase) return;
+  try {
+    const aadhaar = (payload.national_id_number || '').replace(/\D/g, '');
+    const pincode = (payload.national_id_pincode || '').replace(/\D/g, '');
+    const record = {
+      user_id:       payload.user_id,
+      image_url:     payload.national_id_image || null,
+      full_name:     (payload.national_id_name || '').toUpperCase() || null,
+      aadhaar_number: aadhaar || null,
+      dob:           payload.national_id_dob || null,
+      gender:        (payload.national_id_gender || '').toUpperCase() || null,
+      guardian_name: payload.national_id_guardian
+                       ? payload.national_id_guardian.toUpperCase()
+                       : null,
+      address:       payload.national_id_address
+                       ? payload.national_id_address.toUpperCase()
+                       : null,
+      pincode:       pincode || null,
+    };
+    if (!record.full_name || !record.aadhaar_number || record.aadhaar_number.length !== 12 || !record.dob || !record.gender) return;
+    if (!record.address || !record.pincode || record.pincode.length !== 6) return;
+    await supabase.from('aadhaar_data').insert([record]);
+  } catch (err) {
+    console.warn('saveAadhaarData error:', err.message);
+  }
+}
+
+/** Save Driving License details to license_data table (optional — skipped if no DL number) */
+async function saveLicenseData(payload) {
+  if (!isSupabaseConfigured || !supabase) return;
+  if (!payload.driving_license_number?.trim()) return; // DL is optional
+  try {
+    const record = {
+      user_id:        payload.user_id,
+      image_url:      payload.driving_license_image || null,
+      full_name:      (payload.driving_license_name || '').toUpperCase() || null,
+      license_number: (payload.driving_license_number || '').toUpperCase() || null,
+      dob:            payload.driving_license_dob || null,
+      blood_group:    (payload.driving_license_blood_group || '').toUpperCase() || null,
+      vehicle_class:  (payload.driving_license_vehicle_class || '').toUpperCase() || null,
+      date_of_issue:  payload.driving_license_doi || null,
+      date_of_expiry: payload.driving_license_doe || null,
+      rto:            payload.driving_license_rto
+                        ? payload.driving_license_rto.toUpperCase()
+                        : null,
+    };
+    if (!record.full_name || !record.license_number || !record.dob || !record.blood_group) return;
+    await supabase.from('license_data').insert([record]);
+  } catch (err) {
+    console.warn('saveLicenseData error:', err.message);
   }
 }
